@@ -11,7 +11,7 @@
 ### 第一阶段：基础入门（第 1-3 周）
 - [x] LLM 基础原理（Transformer）— ✅ 2026-05-29
 - [x] Prompt Engineering — ✅ 2026-05-29
-- [ ] 什么是 AI Agent（定义、分类、应用场景）
+- [x] 什么是 AI Agent（定义、分类、应用场景）— ✅ 2026-05-29
 - [ ] 主流 Agent 框架概览（LangChain、AutoGPT、CrewAI 等）
 - [ ] 动手：写一个最简单的 LLM 调用 + 工具使用
 
