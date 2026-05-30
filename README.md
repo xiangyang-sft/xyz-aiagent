@@ -13,7 +13,7 @@
 - [x] Prompt Engineering — ✅ 2026-05-29
 - [x] 什么是 AI Agent（定义、分类、应用场景）— ✅ 2026-05-29
 - [x] 主流 Agent 框架概览（LangChain、CrewAI 等）— ✅ 2026-05-30
-- [ ] 动手：写一个最简单的 LLM 调用 + 工具使用
+- [x] 动手：写一个最简单的 LLM 调用 + 工具使用 — ✅ 2026-05-30
 
 ### 第二阶段：核心深入（第 4-6 周）
 - [ ] Agent 核心设计模式（ReAct、Plan-Execute、Reflection）
