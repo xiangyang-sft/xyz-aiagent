@@ -16,7 +16,7 @@
 - [x] 动手：写一个最简单的 LLM 调用 + 工具使用 — ✅ 2026-05-30
 
 ### 第二阶段：核心深入（第 4-6 周）
-- [ ] Agent 核心设计模式（ReAct、Plan-Execute、Reflection）
+- [x] Agent 核心设计模式（ReAct、Plan-Execute、Reflection）— ✅ 2026-05-31
 - [ ] 工具调用（Function Calling、Tool Use）
 - [ ] 记忆系统（短期/长期记忆、RAG）
 - [ ] 多 Agent 协作
