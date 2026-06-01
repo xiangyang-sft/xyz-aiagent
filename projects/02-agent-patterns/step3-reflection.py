@@ -80,7 +80,7 @@ def generate_initial(prompt):
         temperature=0.3
     )
     code = extract_code(response.choices[0].message.content)
-    print(f"\n```python\n{code}\n```")
+    print(f"\n```\n{code}\n```")
     return code
 
 
@@ -93,7 +93,7 @@ def review_code(code, prompt):
     review_prompt = f"""用户需求：{prompt}
 
 代码：
-```python
+```
 {code}
 ```
 
@@ -120,7 +120,7 @@ def refine_code(code, review, prompt):
 
     messages = [
         {"role": "system", "content": REFINER_SYSTEM.format(prompt=prompt, review=review)},
-        {"role": "user", "content": f"原始代码：\n```python\n{code}\n```\n\n请基于审查反馈改进代码："}
+        {"role": "user", "content": f"原始代码：\n```\n{code}\n```\n\n请基于审查反馈改进代码："}
     ]
 
     response = client.chat.completions.create(
@@ -129,7 +129,7 @@ def refine_code(code, review, prompt):
         temperature=0.3
     )
     new_code = extract_code(response.choices[0].message.content)
-    print(f"\n```python\n{new_code}\n```")
+    print(f"\n```\n{new_code}\n```")
     return new_code
 
 
@@ -169,7 +169,7 @@ def reflection_loop(prompt, max_iterations=4):
     print(f"\n{'='*60}")
     print(f"✅ 最终代码（经过 {iterations-1} 轮迭代）")
     print(f"{'='*60}")
-    print(f"\n```python\n{current_code}\n```")
+    print(f"\n```\n{current_code}\n```")
 
     return current_code
 

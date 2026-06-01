@@ -531,7 +531,7 @@ def review_code(code):
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": CRITIC_SYSTEM},
-            {"role": "user", "content": f"请审查以下代码：\n\n```python\n{code}\n```"}
+            {"role": "user", "content": f"请审查以下代码：\n\n```\n{code}\n```"}
         ],
         temperature=0
     )
@@ -546,7 +546,7 @@ def refine_code(code, review, prompt):
             {"role": "user", "content": f"""原始需求：{prompt}
 
 原始代码：
-```python
+```
 {code}
 ```
 
@@ -570,7 +570,7 @@ def reflection_loop(prompt, max_iterations=3):
     print(f"\n{'='*40}")
     print(f"✏️  第 1 轮 - 初始代码（Actor）")
     print(f"{'='*40}")
-    print(f"\n```python\n{current_code}\n```")
+    print(f"\n```\n{current_code}\n```")
 
     for i in range(max_iterations - 1):
         # 审查
@@ -594,12 +594,12 @@ def reflection_loop(prompt, max_iterations=3):
         print(f"{'='*40}")
 
         current_code = refine_code(current_code, review, prompt)
-        print(f"\n```python\n{current_code}\n```")
+        print(f"\n```\n{current_code}\n```")
 
     print(f"\n{'='*50}")
     print(f"✅ 最终代码（{max_iterations} 轮迭代）")
     print(f"{'='*50}")
-    print(f"\n```python\n{current_code}\n```")
+    print(f"\n```\n{current_code}\n```")
 
     return current_code
 
