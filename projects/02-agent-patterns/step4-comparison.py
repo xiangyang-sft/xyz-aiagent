@@ -41,6 +41,50 @@ COMPARISON = """
   • 代码生成/写作      → Reflection
   • 数据分析/报告      → Plan-Execute
   • 客服/对话          → ReAct + Reflection
+
+┌─ 面试题 ──────────────────────────────────────────────┐
+│                                                           │
+│  Q1: ReAct 和 CoT 的区别？                               │
+│  A1: CoT 纯推理，ReAct = CoT + Tool Use。                │
+│      信息完整任务用 CoT，需外部信息用 ReAct。              │
+│                                                           │
+│  Q2: Plan-Execute 什么时候需要重新规划？                  │
+│  A2: 执行结果不符、依赖失败、遗漏步骤、环境改变。           │
+│      实现策略：if unexpected → replan()。                 │
+│                                                           │
+│  Q3: Reflection 如何防止过度循环？                       │
+│  A3: 1.最大迭代 2.阈值 3.改进量检测 4.Token 预算 5.时限  │
+│      经验：2-3 轮最优，超过 5 轮边际收益急剧下降。         │
+│                                                           │
+│  Q4: 三种模式如何组合？举例？                             │
+│  A4: 编程助手：Plan-Execute 规划 → ReAct 执行 →           │
+│      Reflection 审查。实际产品几乎必是组合。               │
+│                                                           │
+│  Q5: ReAct 中无效 Action 格式怎么办？                    │
+│  A5: 分层容错：Retry(重试) → Repair(修复) →               │
+│      Fallback(降级) → Rollback(回退)。                    │
+│                                                           │
+│  Q6: PLAN 格式设计要点？                                 │
+│  A6: 每步一个工具、明确依赖、适中粒度(10-15步)、          │
+│      支持重新规划。                                       │
+│                                                           │
+│  Q7: Reflection 中 Critic 质量怎么保证？                 │
+│  A7: 结构化检查清单、多 Critic 投票、规则引擎辅助、       │
+│      Critic Prompt 工程、定期回测。                       │
+│                                                           │
+│  Q8: ReAct 的 Thought 可以跳过吗？                       │
+│  A8: 不推荐。Thought 有 4 个作用：推理锚点、可解释性、     │
+│      错误追踪、上下文保持。简单任务可用 FC 压缩。          │
+│                                                           │
+│  Q9: 三种模式 Token 消耗量化对比？                       │
+│  A9: Plan-Execute(2000) < ReAct(2500) < Reflection(2700) │
+│      组合控制在 3700（5 步任务）。Observation 要摘要。    │
+│                                                           │
+│  Q10: 如何测试和评估？指标？                              │
+│  A10: Unit + Integration + E2E + 回归 四层测试。          │
+│      指标：完成率>90%，步数<5，无效调用<10%，循环率<5%。   │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
 """
 
 
