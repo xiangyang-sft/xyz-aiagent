@@ -18,7 +18,7 @@
 ### 第二阶段：核心深入（第 4-6 周）
 - [x] Agent 核心设计模式（ReAct、Plan-Execute、Reflection）— ✅ 2026-05-31
 - [x] 工具调用（Function Calling、Tool Use）— ✅ 2026-05-31
-- [ ] 记忆系统（短期/长期记忆、RAG）
+- [x] 记忆系统（短期/长期记忆、RAG）— ✅ 2026-06-01
 - [ ] 多 Agent 协作
 - [ ] 动手：开发一个完整的单 Agent 应用
 
