@@ -543,20 +543,7 @@ def refine_code(code, review, prompt):
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": REFINER_SYSTEM},
-            {"role": "user", "content": f"""原始需求：{prompt}
-
-原始代码：
-```
-{code}
-```
-
-审查反馈：
-{review}
-
-请输出改进后的代码："""}
-        ],
-        temperature=0.3
-    )
+            {"role": "user", "content": f"""原始需求：{prompt}原始代码：{code}审查反馈：{review}请输出改进后的代码："""}],temperature=0.3)
     return response.choices[0].message.content
 
 def reflection_loop(prompt, max_iterations=3):
