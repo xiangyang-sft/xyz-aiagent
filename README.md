@@ -19,7 +19,7 @@
 - [x] Agent 核心设计模式（ReAct、Plan-Execute、Reflection）— ✅ 2026-05-31
 - [x] 工具调用（Function Calling、Tool Use）— ✅ 2026-05-31
 - [x] 记忆系统（短期/长期记忆、RAG）— ✅ 2026-06-01
-- [ ] 多 Agent 协作
+- [x] 多 Agent 协作 — ✅ 2026-06-02
 - [ ] 动手：开发一个完整的单 Agent 应用
 
 ### 第三阶段：进阶实战（第 7-10 周）
