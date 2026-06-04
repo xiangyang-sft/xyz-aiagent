@@ -1,0 +1,10 @@
+[
+  {"input": "今天北京的天气怎么样？", "expected": "北京天气晴朗，气温适宜", "checkpoints": ["天气", "北京"], "category": "weather"},
+  {"input": "帮我计算 15 + 27 等于多少？", "expected": "42", "checkpoints": ["42"], "category": "math"},
+  {"input": "搜索一下 AI Agent 的定义", "expected": "AI Agent 是自主智能系统", "checkpoints": ["AI Agent", "智能"], "category": "search"},
+  {"input": "帮我翻译 'Hello World' 成中文", "expected": "你好世界", "checkpoints": ["你好", "世界"], "category": "translation"},
+  {"input": "写一首关于春天的诗", "expected": "一首关于春天的诗", "checkpoints": ["春"], "category": "creative"},
+  {"input": "推荐一个学习编程的网站", "expected": "推荐学习网站", "checkpoints": ["推荐", "编程", "学习"], "category": "recommendation"},
+  {"input": "Python 中如何读取文件？", "expected": "使用 open() 函数读取文件", "checkpoints": ["open", "文件"], "category": "coding"},
+  {"input": "解释一下什么是 RAG", "expected": "RAG 是检索增强生成", "checkpoints": ["RAG", "检索", "生成"], "category": "tech"}
+]

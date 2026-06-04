@@ -1,0 +1,1 @@
+RAG (Retrieval-Augmented Generation) 是一种结合检索和生成的AI技术。
