@@ -26,7 +26,7 @@
 - [x] Agent 评估与测试 — ✅ 2026-06-04
 - [x] Agent 安全与对齐 — ✅ 2026-06-05
 - [x] 生产化部署（监控、追踪、优化）— ✅ 2026-06-05
-- [ ] 动手：开发一个多 Agent 协作系统
+- [x] 动手：开发一个多 Agent 协作系统 — ✅ 2026-06-07
 
 ### 第四阶段：总结与精通（第 11-12 周）
 - [ ] 构建自己的 Agent 框架/库
@@ -47,7 +47,8 @@
 │   ├── 03-advanced/       ← 第三阶段
 │   └── 04-mastery/        ← 第四阶段
 ├── projects/              ← 动手项目
-│   └── hello-agent/       ← 第一个 Agent
+│   ├── hello-agent/       ← 第一个 Agent
+│   └── 10-multi-agent-system/ ← 多 Agent 协作系统
 ├── papers/                ← 论文精读笔记
 ├── resources.md           ← 学习资源汇总
 └── roadmap.md             ← 详细学习路线

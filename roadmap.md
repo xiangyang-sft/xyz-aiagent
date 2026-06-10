@@ -102,7 +102,7 @@
 |------|--------|--------|
 | 第 3 周 | ✅ 跑通第一个 Agent | `projects/hello-agent/` |
 | 第 6 周 | ✅ 多 Agent 协作 | `projects/multi-agent/` |
-| 第 10 周 | ✅ 完整 Agent 应用 | `projects/final-agent/` |
+| 第 10 周 | ✅ 多 Agent 协作系统 | `projects/10-multi-agent-system/` |
 | 第 12 周 | ✅ 精通 Agent 开发 | 博客/开源贡献 |
 
 ---
