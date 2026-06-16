@@ -1,0 +1,5 @@
+*.egg-info/
+__pycache__/
+*.pyc
+memory_store.json
+.DS_Store

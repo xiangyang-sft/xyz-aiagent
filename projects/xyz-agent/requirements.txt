@@ -1,0 +1,6 @@
+# Step 1 依赖（运行时无额外依赖）
+# Step 2 需要：
+# openai
+# chromadb
+# Step 3 需要：
+# click
