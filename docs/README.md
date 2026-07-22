@@ -39,7 +39,7 @@
 
 ### Week 8: 顶级 Agent Paper 精读
 - [papers/overview.md](papers/overview.md) — 📖 **论文全景概览**（研究版图+8篇精读定位）
-- [papers/react.md](papers/react.md) — ⏳ ReAct：推理+行动协同
+- [papers/react.md](papers/react.md) — ✅ ReAct：推理+行动协同
 - [papers/tot.md](papers/tot.md) — ⏳ Tree of Thoughts：树状推理
 - [papers/toolformer.md](papers/toolformer.md) — ⏳ Toolformer：自学工具
 - [papers/gorilla.md](papers/gorilla.md) — ⏳ Gorilla：大规模API调用
@@ -55,5 +55,5 @@
 
 ---
 
-**当前进度：** 第四阶段第2节（论文精读）— Step 1 完成 ✅ → Step 2a 进行中
+**当前进度：** 第四阶段第2节（论文精读）— Step 2a-1 ReAct ✅ → ToT 待开始
 **GitHub：** [xiangyang-sft/xyz-aiagent](https://github.com/xiangyang-sft/xyz-aiagent)
