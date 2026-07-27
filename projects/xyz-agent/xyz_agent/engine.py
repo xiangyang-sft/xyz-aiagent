@@ -1,23 +1,35 @@
 #!/usr/bin/env python3
 """
-xyz_agent.engine — ReAct 循环引擎（最小可用版本）
+xyz_agent.engine — ReAct 循环引擎（v2 — 生产版）
 
-核心思想：
-  思考 (Thought) → 行动 (Action) → 观察 (Observation)
-  重复直到输出最终答案。
+支持两种推理模式：
+  1. ReAct 模式 — 传统思考→行动→观察（文本解析工具调用）
+  2. Function Calling 模式 — 原生工具调用（适用于 OpenAI API）
+
+核心改进：
+  - 支持 Function Calling 原生格式工具调用
+  - 消息驱动的对话管理（OpenAI Chat 格式）
+  - 可中断、可恢复的单步执行
+  - 追踪/日志/统计
+  - 工具执行结果自动注入
+  - 支持迭代式反思（自纠正）
 
 设计原则：
-  - 无外部依赖（仅 Python 标准库 + 用户提供的 LLM 调用函数）
+  - 核心引擎零外部依赖
   - 纯函数式核心，易于测试
-  - 可中断、可恢复（通过 step() 单步执行）
+  - 模式切换不改变上层 API
 """
 
 import json
 import re
 import time
-from typing import Callable, Dict, List, Optional, Tuple, Any
+import logging
+from typing import Callable, Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -50,10 +62,15 @@ class Step:
 class ReActConfig:
     """ReAct 引擎配置"""
     max_steps: int = 15
-    max_tool_calls: int = 10
-    timeout_per_step: float = 30.0
-    stop_tokens: List[str] = field(default_factory=lambda: ["<|end|>", "FINAL ANSWER:"])
+    max_tool_calls: int = 20
+    timeout_per_step: float = 60.0
     verbose: bool = False
+    mode: str = "auto"  # "react" | "function_calling" | "auto"
+    tool_call_prefix: str = "动作"
+    tool_args_prefix: str = "参数"
+    think_prefix: str = "思考"
+    answer_prefix: str = "最终答案"
+    max_retries: int = 2  # 工具失败重试次数
 
 
 # ============================================================
@@ -62,57 +79,72 @@ class ReActConfig:
 
 class ReActEngine:
     """
-    ReAct 循环引擎
+    ReAct 循环引擎（v2）
+
+    支持 Function Calling 原生格式的工具调用。
 
     用法:
-        engine = ReActEngine(llm_call, tool_executor, config)
-        result = engine.run("请帮我查询北京的天气")
+        # 方式 1: 传统 ReAct（文本解析）
+        engine = ReActEngine(llm_call=my_llm, tool_executor=my_executor)
 
-    也可以单步执行:
-        engine = ReActEngine(llm_call, tool_executor)
-        engine.reset(question)
-        while not engine.done:
-            step = engine.step()
+        # 方式 2: Function Calling（原生格式）
+        engine = ReActEngine(
+            llm_call=my_llm_with_tools,  # 返回 (text, tokens, tool_calls)
+            tools=tool_schemas,
+            config=ReActConfig(mode="function_calling"),
+        )
+
+        result = engine.run("请问北京的天气")
     """
 
     def __init__(
         self,
-        llm_call: Callable[[str, Optional[List[Dict]]], Tuple[str, int]],
+        llm_call: Callable,
         tool_executor: Optional[Callable[[str, Dict], str]] = None,
         config: Optional[ReActConfig] = None,
         system_prompt: Optional[str] = None,
+        tools: Optional[List[Dict]] = None,
     ):
         """
         参数:
-          llm_call:    LLM 调用函数 sign=(prompt, [messages]) -> (response, token_count)
-          tool_executor: 工具执行函数 sign=(tool_name, args) -> result_str
-          config:      运行配置
-          system_prompt: 自定义系统提示词
+          llm_call:  LLM 调用函数
+            支持两种签名:
+              - 传统: (prompt, messages) -> (response, token_count)
+              - FC:   (messages, tools, ...) -> (response, token_count, tool_calls)
+          tool_executor: 工具执行器 (tool_name, args) -> result_str
+          config: 运行配置
+          system_prompt: 系统提示词
+          tools: OpenAI Function Calling 格式的工具列表
         """
         self.llm_call = llm_call
         self.tool_executor = tool_executor
         self.config = config or ReActConfig()
         self.system_prompt = system_prompt or self._default_system_prompt()
+        self.tools = tools or []
 
         # 运行时状态
-        self.steps: List[Step] = []
         self.messages: List[Dict] = []
+        self.steps: List[Step] = []
         self.done = False
         self.final_answer: Optional[str] = None
         self.error: Optional[str] = None
         self.total_tokens = 0
         self.tool_call_count = 0
+        self.retry_count = 0
+        self._mode = self._detect_mode()
 
-    def reset(self, question: str):
-        """重置引擎状态，准备新问题"""
-        self.steps = []
-        self.messages = [{"role": "system", "content": self.system_prompt}]
-        self.messages.append({"role": "user", "content": question})
-        self.done = False
-        self.final_answer = None
-        self.error = None
-        self.total_tokens = 0
-        self.tool_call_count = 0
+    def _detect_mode(self) -> str:
+        """自动检测模式"""
+        if self.config.mode != "auto":
+            return self.config.mode
+        # 检查 llm_call 是否支持 Function Calling（通过 tools 参数）
+        if self.tools:
+            return "function_calling"
+        return "react"
+
+    # ============================================================
+    # 运行
+    # ============================================================
 
     def run(self, question: str) -> str:
         """
@@ -130,8 +162,29 @@ class ReActEngine:
 
         if not self.done and step_count >= self.config.max_steps:
             self.error = f"达到最大步骤数 ({self.config.max_steps})"
+            self.done = True
 
         return self.final_answer or f"[错误: {self.error}]"
+
+    def reset(self, question: str):
+        """重置引擎状态，准备新问题"""
+        self.steps = []
+        self.messages = []
+        # 系统消息
+        if self.system_prompt:
+            self.messages.append({"role": "system", "content": self.system_prompt})
+        # 用户问题
+        self.messages.append({"role": "user", "content": question})
+        self.done = False
+        self.final_answer = None
+        self.error = None
+        self.total_tokens = 0
+        self.tool_call_count = 0
+        self.retry_count = 0
+
+    # ============================================================
+    # 单步执行
+    # ============================================================
 
     def step(self) -> Step:
         """
@@ -140,20 +193,158 @@ class ReActEngine:
         返回:
           当前步骤
         """
-        # 1. 构建提示词（包含之前的对话和工具调用记录）
-        prompt = self._build_react_prompt()
+        if self.done:
+            return Step(type=ActionType.ERROR, content="引擎已结束")
 
-        # 2. 调用 LLM
+        if self._mode == "function_calling":
+            return self._step_function_calling()
+        else:
+            return self._step_react()
+
+    # ---- Function Calling 模式 ----
+
+    def _step_function_calling(self) -> Step:
+        """使用 Function Calling 原生格式执行单步"""
         start_time = time.time()
-        response, tokens = self.llm_call(prompt, self.messages)
+
+        try:
+            # 调用 LLM（传入 tools）
+            response, tokens, tool_calls = self.llm_call(
+                self.messages,
+                tools=self.tools if self.tools else None,
+            )
+        except Exception as e:
+            duration = time.time() - start_time
+            error_step = Step(
+                type=ActionType.ERROR,
+                content=f"LLM 调用失败: {e}",
+                duration=duration,
+            )
+            self.steps.append(error_step)
+            self.error = str(e)
+            self.done = True
+            return error_step
+
+        self.total_tokens += tokens
+
+        # 记录 LLM 响应（不含工具调用）
+        if response:
+            self.messages.append({"role": "assistant", "content": response})
+
+        # 处理工具调用
+        if tool_calls:
+            # 将工具调用加入消息
+            assistant_msg = {
+                "role": "assistant",
+                "content": response or None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False),
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+            # 更新最后一条消息
+            self.messages[-1] = assistant_msg
+
+            for tc in tool_calls:
+                tool_name = tc["function"]["name"]
+                tool_args = tc["function"]["arguments"]
+                self.tool_call_count += 1
+
+                # 检查限制
+                if self.tool_call_count > self.config.max_tool_calls:
+                    step = Step(
+                        type=ActionType.ERROR,
+                        content=f"达到最大工具调用次数 ({self.config.max_tool_calls})",
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        duration=time.time() - start_time,
+                        token_count=tokens,
+                    )
+                    self.steps.append(step)
+                    self.error = step.content
+                    self.done = True
+                    return step
+
+                # 执行工具
+                if self.tool_executor:
+                    try:
+                        tool_result = self.tool_executor(tool_name, tool_args)
+                    except Exception as e:
+                        tool_result = f"[工具错误] {str(e)}"
+                else:
+                    tool_result = "[未配置工具执行器]"
+
+                # 工具结果加入消息
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result,
+                })
+
+                # 记录步骤
+                step = Step(
+                    type=ActionType.TOOL,
+                    content=f"调用工具: {tool_name}",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_result=tool_result,
+                    duration=time.time() - start_time,
+                    token_count=tokens,
+                )
+                self.steps.append(step)
+
+            # 返回最后一个工具调用步骤
+            return self.steps[-1]
+
+        # 无工具调用 = 最终答案
+        self.done = True
+        self.final_answer = response
+
+        step = Step(
+            type=ActionType.ANSWER,
+            content=response,
+            duration=time.time() - start_time,
+            token_count=tokens,
+        )
+        self.steps.append(step)
+        return step
+
+    # ---- ReAct 文本解析模式 ----
+
+    def _step_react(self) -> Step:
+        """使用文本解析的传统 ReAct"""
+        prompt = self._build_react_prompt()
+        start_time = time.time()
+
+        try:
+            response, tokens = self.llm_call(prompt, self.messages)
+        except Exception as e:
+            duration = time.time() - start_time
+            error_step = Step(
+                type=ActionType.ERROR,
+                content=f"LLM 调用失败: {e}",
+                duration=duration,
+            )
+            self.steps.append(error_step)
+            self.error = str(e)
+            self.done = True
+            return error_step
+
         duration = time.time() - start_time
         self.total_tokens += tokens
 
-        # 3. 解析响应
+        # 解析响应
         step = self._parse_response(response, duration, tokens)
         self.steps.append(step)
 
-        # 4. 根据步骤类型执行
+        # 执行操作
         if step.type == ActionType.TOOL:
             self.tool_call_count += 1
             if self.tool_call_count > self.config.max_tool_calls:
@@ -168,28 +359,27 @@ class ReActEngine:
                     step.tool_result = tool_result
                     self.messages.append({
                         "role": "user",
-                        "content": f"观察: {tool_result}"
+                        "content": f"观察结果: {tool_result}",
                     })
                 except Exception as e:
-                    step.tool_result = f"工具执行错误: {str(e)}"
+                    step.tool_result = f"[工具错误] {str(e)}"
                     self.messages.append({
                         "role": "user",
-                        "content": f"观察错误: {str(e)}"
+                        "content": f"观察错误: {str(e)}",
                     })
             else:
                 step.tool_result = "未配置工具执行器"
                 self.messages.append({
                     "role": "user",
-                    "content": f"观察: 未配置工具执行器"
+                    "content": "观察: 未配置工具执行器",
                 })
 
         elif step.type == ActionType.ANSWER:
             self.done = True
             self.final_answer = step.content
-            # 将最终答案加入消息
             self.messages.append({
                 "role": "assistant",
-                "content": f"最终答案: {step.content}"
+                "content": f"最终答案: {step.content}",
             })
 
         elif step.type == ActionType.ERROR:
@@ -198,52 +388,126 @@ class ReActEngine:
 
         return step
 
+    # ============================================================
+    # 消息管理
+    # ============================================================
+
+    def add_user_message(self, content: str):
+        """添加用户消息"""
+        self.messages.append({"role": "user", "content": content})
+        self.done = False  # 允许继续
+
+    def add_system_message(self, content: str):
+        """添加系统消息"""
+        self.messages.append({"role": "system", "content": content})
+
+    def get_messages(self) -> List[Dict]:
+        """获取当前所有消息"""
+        return self.messages
+
+    def clear_messages(self):
+        """清空消息（保留 system prompt）"""
+        system_msgs = [m for m in self.messages if m.get("role") == "system"]
+        self.messages = system_msgs
+        self.steps = []
+        self.done = False
+        self.final_answer = None
+        self.error = None
+
+    # ============================================================
+    # 提示词构建（ReAct 模式）
+    # ============================================================
+
     def _build_react_prompt(self) -> str:
         """构建 ReAct 格式的提示词"""
         lines = [self.system_prompt]
-        lines.append(f"\n<问题>\n{self.messages[-1]['content'] if self.messages[-1]['role'] == 'user' else ''}")
 
+        # 消息历史
+        for msg in self.messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                continue  # 已在开头
+            if role == "user":
+                lines.append(f"\n用户: {content[:500]}")
+            elif role == "assistant":
+                lines.append(f"\n助手: {content[:500]}")
+
+        # 步骤历史
         if self.steps:
-            lines.append("\n<历史步骤>")
-            for i, s in enumerate(self.steps):
-                lines.append(f"  步骤 {i+1} [{s.type.value}]: {s.content[:100]}")
+            lines.append("\n<最近步骤>")
+            for s in self.steps[-5:]:
+                lines.append(f"  [{s.type.value}]: {(s.content or '')[:100]}")
                 if s.tool_result:
                     lines.append(f"  结果: {s.tool_result[:100]}")
 
+        # 当前步骤提示
         lines.append(f"\n<当前步骤 ({len(self.steps) + 1}/{self.config.max_steps})>")
-        lines.append("请使用以下格式响应：")
-        lines.append("  思考: <你的推理过程>")
-        lines.append("  动作: 工具名\n  参数: {\"key\": \"value\"}")
-        lines.append("  或")
-        lines.append("  最终答案: <你的回答>")
+        lines.append("请使用以下格式之一响应：")
+        lines.append(f"  1. 需要工具时：")
+        lines.append(f"     {self.config.think_prefix}: <分析>")
+        lines.append(f"     {self.config.tool_call_prefix}: 工具名")
+        lines.append(f"     {self.config.tool_args_prefix}: {{json参数}}")
+        lines.append(f"  2. 有答案时：")
+        lines.append(f"     {self.config.answer_prefix}: <你的回答>")
 
         return "\n".join(lines)
+
+    def _default_system_prompt(self) -> str:
+        return """你是一个 AI Agent，通过调用工具来解决问题。
+
+工作流程：
+1. 分析问题，决定需要调用什么工具
+2. 调用工具获取信息
+3. 根据观察结果继续推理
+4. 如果工具调用出错，尝试其他方法
+5. 最终给出答案
+
+格式要求：
+- 工具调用：动作: 工具名\n参数: {...}
+- 最终答案：最终答案: <回答>"""
+
+    # ============================================================
+    # 响应解析（ReAct 模式）
+    # ============================================================
+
+    _tool_pattern = re.compile(
+        r"(?:动作|工具|Action|Tool):\s*(\w[\w.-]*)\s*\n?\s*(?:参数|Args|Arguments|args):\s*(\{.*?\}|\[.*?\]|`[^`]+`)",
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    _answer_pattern = re.compile(
+        r"(?:最终答案|答案|Final Answer|Answer|FINAL):\s*(.*?)$",
+        re.DOTALL | re.IGNORECASE,
+    )
 
     def _parse_response(self, response: str, duration: float, tokens: int) -> Step:
         """解析 LLM 响应为结构化步骤"""
 
-        # 检查是否是最终答案
-        if "最终答案:" in response or "<|end|>" in response:
-            content = response.replace("<|end|>", "").replace("最终答案:", "").strip()
+        # 1. 检查是否是最终答案
+        answer_match = self._answer_pattern.search(response)
+        if answer_match:
             return Step(
                 type=ActionType.ANSWER,
-                content=content,
+                content=answer_match.group(1).strip(),
                 duration=duration,
                 token_count=tokens,
             )
 
-        # 检查是否是工具调用
-        tool_match = re.search(
-            r"动作:\s*(\w[\w.-]*)\s*\n?\s*参数:\s*(\{.*?\}|\[.*?\])",
-            response,
-            re.DOTALL,
-        )
+        # 2. 检查是否是工具调用
+        tool_match = self._tool_pattern.search(response)
         if tool_match:
             tool_name = tool_match.group(1).strip()
+            raw_args = tool_match.group(2)
+
+            # 解析参数
+            if raw_args.startswith("`") and raw_args.endswith("`"):
+                raw_args = raw_args[1:-1]
             try:
-                tool_args = json.loads(tool_match.group(2))
+                tool_args = json.loads(raw_args)
             except json.JSONDecodeError:
-                tool_args = {"raw": tool_match.group(2)}
+                tool_args = {"raw": raw_args}
+
             return Step(
                 type=ActionType.TOOL,
                 content=response,
@@ -253,7 +517,18 @@ class ReActEngine:
                 token_count=tokens,
             )
 
-        # 默认作为思考步骤
+        # 3. 有特定关键词的思考
+        think_prefixes = ["思考:", "Thought:", "分析:", "让我"]
+        for prefix in think_prefixes:
+            if prefix in response:
+                return Step(
+                    type=ActionType.THINK,
+                    content=response,
+                    duration=duration,
+                    token_count=tokens,
+                )
+
+        # 4. 默认作为思考步骤
         return Step(
             type=ActionType.THINK,
             content=response,
@@ -261,25 +536,12 @@ class ReActEngine:
             token_count=tokens,
         )
 
-    def _default_system_prompt(self) -> str:
-        return """你是一个 AI Agent，使用 ReAct 模式工作。
-
-工作流程：
-1. 思考 (Thought) — 分析问题，决定下一步
-2. 动作 (Action) — 调用工具获取信息
-3. 观察 (Observation) — 查看工具返回结果
-4. 重复直到可以给出最终答案
-
-工具可用:
-{tool_descriptions}
-
-格式要求：
-- 如果需要工具：输出「动作: 工具名\n参数: {...}」
-- 如果有答案：输出「最终答案: <你的回答>」
-"""
+    # ============================================================
+    # 统计与追踪
+    # ============================================================
 
     def get_stats(self) -> Dict:
-        """获取运行统计信息"""
+        """获取运行统计"""
         return {
             "total_steps": len(self.steps),
             "tool_calls": self.tool_call_count,
@@ -288,19 +550,42 @@ class ReActEngine:
             "has_answer": self.final_answer is not None,
             "has_error": self.error is not None,
             "duration": sum(s.duration for s in self.steps),
+            "mode": self._mode,
         }
 
-    def get_trace(self) -> List[Dict]:
-        """获取步骤追踪（用于调试/监控）"""
-        return [
-            {
-                "step": i,
+    def get_trace(self, detail: str = "summary") -> List[Dict]:
+        """
+        获取步骤追踪
+
+        detail:
+          "summary" — 简略追踪
+          "full" — 完整追踪（含全部内容）
+        """
+        traces = []
+        for i, s in enumerate(self.steps):
+            entry = {
+                "step": i + 1,
                 "type": s.type.value,
-                "content": s.content[:200],
                 "tool": s.tool_name,
-                "tool_result": (s.tool_result[:200] if s.tool_result else None),
                 "duration_ms": round(s.duration * 1000, 1),
                 "tokens": s.token_count,
             }
-            for i, s in enumerate(self.steps)
-        ]
+            if detail == "full":
+                entry["content"] = s.content[:500]
+                entry["tool_args"] = s.tool_args
+                entry["tool_result"] = (s.tool_result[:500] if s.tool_result else None)
+            else:
+                entry["content"] = (s.content or "")[:100]
+                entry["tool_result"] = (s.tool_result[:100] if s.tool_result else None)
+            traces.append(entry)
+        return traces
+
+    def export_conversation(self, format: str = "json") -> Union[str, List[Dict]]:
+        """导出完整对话"""
+        if format == "json":
+            return json.dumps({
+                "messages": self.messages,
+                "steps": self.get_trace(detail="full"),
+                "stats": self.get_stats(),
+            }, ensure_ascii=False, indent=2)
+        return self.get_trace(detail="full")

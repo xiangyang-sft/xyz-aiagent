@@ -1,6 +1,6 @@
-# Step 1 依赖（运行时无额外依赖）
-# Step 2 需要：
-# openai
-# chromadb
-# Step 3 需要：
-# click
+pyyaml>=6.0
+# 可选:
+# openai>=1.0
+# httpx>=0.27
+# click>=8.0
+# chromadb>=0.4
