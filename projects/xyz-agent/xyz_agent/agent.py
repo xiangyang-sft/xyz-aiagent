@@ -163,7 +163,7 @@ class Agent:
         self._tool_schemas = self._build_tool_schemas()
 
         # 4. 设置命令系统上下文
-        if self.command_system:
+        if self.command_system is not None:
             self.command_system.set_context(
                 agent=self,
                 tool_registry=self.tool_registry,
@@ -207,7 +207,7 @@ class Agent:
         tools = self.tool_registry.list_tools()
 
         # 添加 MCP 工具的 schema
-        if self.mcp_manager:
+        if self.mcp_manager is not None:
             for server_name in self.mcp_manager.list_servers():
                 server = self.mcp_manager.get_server(server_name)
                 if server and server.is_connected:
@@ -219,6 +219,11 @@ class Agent:
                         })
 
         return build_tool_schemas(tools)
+
+    def rebuild_engine(self):
+        """重建引擎（加载新工具/Skill/MCP 后调用）"""
+        self._build_engine()
+        return self
 
     def _build_engine(self):
         """构建 ReAct 引擎"""
@@ -262,7 +267,7 @@ class Agent:
         parts = [self.config.system_prompt or self._default_system_prompt()]
 
         # 注入 Skill system prompts
-        if self.skill_manager:
+        if self.skill_manager is not None:
             skill_prompts = self.skill_manager.get_system_prompts()
             if skill_prompts:
                 parts.append("\n\n[已加载的 Skill]")
@@ -276,7 +281,7 @@ class Agent:
                 parts.append(f"  - {t['name']}: {t['description']}")
 
         # 命令说明
-        if self.command_system:
+        if self.command_system is not None:
             parts.append("\n\n[命令]")
             parts.append("  输入 /help 查看可用命令")
             parts.append("  输入 /tools 查看所有工具")
@@ -398,7 +403,7 @@ class Agent:
 
     def discover_mcp_tools(self):
         """发现 MCP 工具并注册到注册表"""
-        if self.mcp_manager:
+        if self.mcp_manager is not None:
             self.mcp_manager.discover_all_tools_sync(registry=self.tool_registry)
             # 重建引擎同步工具
             self._tool_schemas = self._build_tool_schemas()
@@ -406,10 +411,10 @@ class Agent:
 
     def refresh_skills(self):
         """刷新所有 Skill"""
-        if self.skill_manager:
+        if self.skill_manager is not None:
             count = self.skill_manager.refresh()
             if count > 0:
-                self._build_engine()
+                self.rebuild_engine()
             return count
         return 0
 
@@ -442,7 +447,7 @@ class Agent:
 
     def list_skills(self) -> List[Dict]:
         """列出所有 Skill"""
-        if self.skill_manager:
+        if self.skill_manager is not None:
             from .skill import list_skills
             return list_skills()
         return []
