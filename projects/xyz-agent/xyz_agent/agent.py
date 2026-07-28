@@ -232,30 +232,26 @@ class Agent:
 
         # 构建 LLM 调用包装
         if self.provider:
-            def llm_call_with_tools(prompt_or_messages, tools_or_messages=None):
+            def llm_call_with_tools(prompt_or_messages, tools=None):
                 """兼容两种调用签名：
                    - 传统模式: (prompt: str, messages: list) -> (response, tokens)
                    - FC 模式:  (messages: list, tools: list|None) -> (response, tokens, tool_calls)
                 """
-                result = (
-                    self.provider.chat(
-                        messages=tools_or_messages or [],
-                        temperature=self.config.temperature,
-                        max_tokens=self.config.max_tokens,
-                    )
-                    if isinstance(prompt_or_messages, str)
-                    else self.provider.chat(
-                        messages=prompt_or_messages,
-                        tools=tools_or_messages,
-                        temperature=self.config.temperature,
-                        max_tokens=self.config.max_tokens,
-                    )
-                )
-                # Provider 统一返回三元组 (response, tokens, tool_calls)
-                # 传统模式只取前两个
                 if isinstance(prompt_or_messages, str):
+                    # 传统模式：第一个参数是 prompt，tools 参数实际是 messages
+                    result = self.provider.chat(
+                        messages=tools or [],
+                        temperature=self.config.temperature,
+                        max_tokens=self.config.max_tokens,
+                    )
                     return result[0], result[1]
-                return result
+                # FC 模式：prompt_or_messages 是 messages，tools 就是 tools
+                return self.provider.chat(
+                    messages=prompt_or_messages,
+                    tools=tools,
+                    temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                )
             llm_fn = llm_call_with_tools
         else:
             llm_fn = self._default_llm
