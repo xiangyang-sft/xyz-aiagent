@@ -196,8 +196,18 @@ COMMAND_HELP = """
     /skill load <path>     加载一个 Skill 目录
     /skill refresh         刷新所有 Skill
 
+{Style.CYAN}  MCP 管理{Style.RESET}
+    /mcp                   交互选择 MCP 操作（连接/断开/查看）
+    /mcp list              查看 MCP 服务器状态
+    /mcp connect <name> <cmd> [args] 连接 MCP 服务器
+    /mcp disconnect <name>  断开 MCP 服务器
+    /mcp discover          发现并注册 MCP 工具
+
 {Style.CYAN}  模型管理{Style.RESET}
     /model                 交互选择模型（↑↓选择 + 回车确认）
+
+{Style.CYAN}  命令列表{Style.RESET}
+    /commands              浏览所有注册的命令，选中查看详情
 
 {Style.CYAN}  MCP 管理{Style.RESET}
     /mcp list               查看 MCP 服务器状态
@@ -259,6 +269,10 @@ def _handle_slash_command(cmd: str, agent: Agent):
     # === 模型 ===
     elif command == "model":
         _interactive_model_select(agent)
+
+    # === 命令列表 ===
+    elif command in ("commands", "cmds"):
+        _interactive_commands_list(agent)
 
     # === 调试 ===
     elif command == "stats":
@@ -452,7 +466,7 @@ metadata:
 
 def _handle_mcp_command(args: List[str], agent: Agent):
     if not args:
-        print(f"{Style.YELLOW}用法: /mcp list | /mcp connect <name> <cmd> [args] | /mcp disconnect <name> | /mcp discover{Style.RESET}")
+        _interactive_mcp_select(agent)
         return
 
     sub = args[0].lower()
@@ -816,6 +830,246 @@ def _interactive_model_select(agent: Agent):
     agent.rebuild_engine()
 
     print(f"{Style.GREEN}✓{Style.RESET} 模型已切换为 {Style.BOLD}{model_name}{Style.RESET} ({provider_name})")
+
+
+# 预定义的 MCP 模板
+_MCP_TEMPLATES = [
+    {
+        "name": "filesystem",
+        "description": "文件系统操作（读/写/搜索文件）",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+    },
+    {
+        "name": "github",
+        "description": "GitHub API 集成（PR/Issue/Repo）",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+    },
+    {
+        "name": "playwright",
+        "description": "浏览器自动化（截图/点击/填表）",
+        "command": "npx",
+        "args": ["-y", "@playwright/mcp"],
+    },
+    {
+        "name": "sqlite",
+        "description": "SQLite 数据库查询",
+        "command": "uvx",
+        "args": ["mcp-server-sqlite", "--db-path", "/tmp/test.db"],
+    },
+    {
+        "name": "fetch",
+        "description": "网页内容抓取（HTTP GET）",
+        "command": "uvx",
+        "args": ["mcp-server-fetch"],
+    },
+    {
+        "name": "sequential-thinking",
+        "description": "分步推理思考",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    },
+]
+
+
+def _interactive_mcp_select(agent: Agent):
+    """交互式 MCP 选择器 — 管理服务器连接/断开"""
+    from .cli_selector import confirm, input_text
+
+    # --- 第一步：选择操作 ---
+    actions = [
+        {"name": "📋  查看已连接的服务器", "description": "列出所有已连接的 MCP 服务器", "_action": "list"},
+        {"name": "🔌  连接新服务器（预设模板）", "description": "从常用 MCP 模板中选择", "_action": "connect_template"},
+        {"name": "🔌  连接新服务器（自定义）", "description": "手动输入命令连接", "_action": "connect_custom"},
+        {"name": "📡  发现并注册 MCP 工具", "description": "从所有已连接服务器同步工具", "_action": "discover"},
+    ]
+
+    # 如果有已连接的服务器，加上断开选项
+    connected = []
+    if agent.mcp_manager is not None:
+        connected = [s for s in agent.mcp_manager.list_servers()
+                     if agent.mcp_manager.get_server(s) and agent.mcp_manager.get_server(s).is_connected]
+
+    selected_action = interactive_select(
+        items=actions,
+        title="🔌 MCP 管理",
+        prompt="↑↓ 选择  |  回车确认  |  ESC 取消",
+    )
+    if selected_action is None:
+        return
+
+    action = selected_action["_action"]
+
+    # --- 操作：列出 ---
+    if action == "list":
+        servers = agent.mcp_manager.list_servers() if agent.mcp_manager else []
+        if not servers:
+            print(f"{Style.YELLOW}没有连接的 MCP 服务器{Style.RESET}")
+            return
+        print(f"{Style.CYAN}MCP 服务器 ({len(servers)}):{Style.RESET}")
+        for name in servers:
+            server = agent.mcp_manager.get_server(name)
+            status = f"{Style.GREEN}✅{Style.RESET}" if server and server.is_connected else f"{Style.RED}❌{Style.RESET}"
+            tools_n = len(server.tools) if server else 0
+            print(f"  {status} {Style.BOLD}{name}{Style.RESET} ({tools_n} 个工具)")
+        return
+
+    # --- 操作：断开 ---
+    if action == "disconnect":
+        _interactive_mcp_disconnect(agent)
+        return
+
+    # --- 操作：模板连接 ---
+    if action == "connect_template":
+        template_items = []
+        for t in _MCP_TEMPLATES:
+            already = ""
+            if agent.mcp_manager and t["name"] in agent.mcp_manager.list_servers():
+                already = "  (已连接)"
+            template_items.append({
+                "name": t["name"],
+                "description": t["description"] + already,
+                "tags": ["mcp"],
+                "_tpl": t,
+            })
+
+        selected = interactive_select(
+            items=template_items,
+            title=f"🔌 选择 MCP 服务器模板（共 {len(template_items)} 个）",
+            prompt="↑↓ 选择  |  回车连接  |  / 过滤  |  ESC 取消",
+        )
+        if selected is None:
+            return
+
+        tpl = selected["_tpl"]
+        try:
+            if agent.mcp_manager is None:
+                agent.mcp_manager = MCPManager()
+            agent.setup_mcp(tpl["name"], tpl["command"], tpl["args"])
+            print(f"{Style.GREEN}✓{Style.RESET} MCP 服务器 {Style.BOLD}{tpl['name']}{Style.RESET} 已连接")
+
+            if confirm("  是否同步发现工具?"):
+                agent.discover_mcp_tools()
+                print(f"  {Style.GREEN}✓{Style.RESET} 工具已同步")
+        except Exception as e:
+            print(f"{Style.RED}✗ 连接失败: {e}{Style.RESET}")
+        return
+
+    # --- 操作：自定义连接 ---
+    if action == "connect_custom":
+        name = input_text("服务器名称")
+        if not name:
+            return
+        cmd = input_text("命令（如 npx, uvx, python）", default="npx")
+        args_str = input_text("参数（空格分隔）", default="-y @modelcontextprotocol/server-filesystem /tmp")
+        args = args_str.split()
+        try:
+            if agent.mcp_manager is None:
+                agent.mcp_manager = MCPManager()
+            agent.setup_mcp(name, cmd, args)
+            print(f"{Style.GREEN}✓{Style.RESET} MCP 服务器 {Style.BOLD}{name}{Style.RESET} 已连接")
+
+            if confirm("  是否同步发现工具?"):
+                agent.discover_mcp_tools()
+                print(f"  {Style.GREEN}✓{Style.RESET} 工具已同步")
+        except Exception as e:
+            print(f"{Style.RED}✗ 连接失败: {e}{Style.RESET}")
+        return
+
+    # --- 操作：发现工具 ---
+    if action == "discover":
+        if agent.mcp_manager is None:
+            print(f"{Style.YELLOW}没有 MCP 管理器{Style.RESET}")
+            return
+        agent.discover_mcp_tools()
+        tools_count = len(agent.list_tools())
+        print(f"{Style.GREEN}✓{Style.RESET} MCP 工具已同步，当前共 {tools_count} 个工具")
+
+
+def _interactive_mcp_disconnect(agent: Agent):
+    """选择已连接的 MCP 服务器并断开"""
+    if agent.mcp_manager is None:
+        print(f"{Style.YELLOW}没有 MCP 管理器{Style.RESET}")
+        return
+
+    servers = agent.mcp_manager.list_servers()
+    connected_servers = [
+        s for s in servers
+        if agent.mcp_manager.get_server(s) and agent.mcp_manager.get_server(s).is_connected
+    ]
+
+    if not connected_servers:
+        print(f"{Style.YELLOW}没有已连接的 MCP 服务器{Style.RESET}")
+        return
+
+    items = []
+    for name in connected_servers:
+        server = agent.mcp_manager.get_server(name)
+        tools_n = len(server.tools) if server else 0
+        items.append({
+            "name": name,
+            "description": f"{tools_n} 个工具",
+            "tags": ["connected"],
+        })
+
+    selected = interactive_select(
+        items=items,
+        title=f"🔌 选择要断开的 MCP 服务器（共 {len(connected_servers)} 个）",
+        prompt="↑↓ 选择  |  回车断开  |  ESC 取消",
+    )
+    if selected is None:
+        return
+
+    name = selected["name"]
+    import asyncio
+    try:
+        server = agent.mcp_manager.get_server(name)
+        if server:
+            asyncio.run(server.disconnect())
+            print(f"{Style.GREEN}✓{Style.RESET} MCP 服务器 {Style.BOLD}{name}{Style.RESET} 已断开")
+    except Exception as e:
+        print(f"{Style.RED}✗ 断开失败: {e}{Style.RESET}")
+
+
+def _interactive_commands_list(agent: Agent):
+    """交互式命令列表 — 浏览所有注册的命令"""
+    cs = agent.command_system
+    if cs is None:
+        print(f"{Style.YELLOW}命令系统未启用{Style.RESET}")
+        return
+
+    grouped = cs.get_all_commands()
+    all_cmds = []
+    for category, cmds in sorted(grouped.items()):
+        for cmd in sorted(cmds, key=lambda c: c.name):
+            all_cmds.append({
+                "name": f"{cmd.name}",
+                "description": cmd.description,
+                "tags": [category],
+                "_cmd": cmd,
+                "_category": category,
+            })
+
+    if not all_cmds:
+        print(f"{Style.YELLOW}当前没有注册的命令{Style.RESET}")
+        return
+
+    selected = interactive_select(
+        items=all_cmds,
+        title=f"📋 已注册命令（共 {len(all_cmds)} 个）— 选中查看详情",
+        prompt="↑↓ 选择  |  回车查看  |  / 过滤  |  ESC 取消",
+    )
+    if selected is None:
+        return
+
+    cmd = selected["_cmd"]
+    cat = selected["_category"]
+    print(f"  {Style.BOLD}/{cmd.name}{Style.RESET}")
+    print(f"    分类: {Style.CYAN}{cat}{Style.RESET}")
+    print(f"    描述: {cmd.description}")
+    print(f"    用法: {cmd.usage or f'/{cmd.name} [args]'}")
+    print(f"    处理器: {cmd.handler.__name__}")
 
 
 # ============================================================
