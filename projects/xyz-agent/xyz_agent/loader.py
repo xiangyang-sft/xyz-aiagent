@@ -197,7 +197,7 @@ class ExtensionLoader:
             return 0
 
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 if path.endswith(".json"):
                     config = json.load(f)
                 else:
@@ -274,7 +274,7 @@ class ExtensionLoader:
     def _load_skill_config(self, path: str) -> bool:
         """加载单个 skill 配置"""
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 config = json.load(f) if path.endswith(".json") else yaml.safe_load(f)
             if isinstance(config, dict) and "name" in config:
                 config["_source"] = path
@@ -287,7 +287,7 @@ class ExtensionLoader:
     def _load_mcp_config(self, path: str) -> bool:
         """加载单个 MCP 配置"""
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 config = json.load(f) if path.endswith(".json") else yaml.safe_load(f)
             if isinstance(config, dict) and "command" in config:
                 config["_source"] = path
@@ -300,7 +300,7 @@ class ExtensionLoader:
     def _load_command_config(self, path: str) -> bool:
         """加载单个命令配置"""
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 config = json.load(f) if path.endswith(".json") else yaml.safe_load(f)
             if isinstance(config, dict) and "name" in config:
                 config["_source"] = path
@@ -476,6 +476,6 @@ def generate_sample_config(path: str = "~/.xyz-agent/extensions.yaml"):
     """生成示例扩展配置文件"""
     path = os.path.expanduser(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(SAMPLE_CONFIG)
     return path

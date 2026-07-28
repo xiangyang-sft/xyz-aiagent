@@ -275,7 +275,7 @@ class LongTermMemory(BaseMemory):
         """从文件加载记忆"""
         try:
             if os.path.exists(self.file_path):
-                with open(self.file_path, "r") as f:
+                with open(self.file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self._items = data.get("items", [])
         except (json.JSONDecodeError, IOError):
@@ -284,7 +284,7 @@ class LongTermMemory(BaseMemory):
     def save(self):
         """保存记忆到文件"""
         try:
-            with open(self.file_path, "w") as f:
+            with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump({"items": self._items, "updated_at": time.time()}, f)
             self._dirty = False
         except IOError:

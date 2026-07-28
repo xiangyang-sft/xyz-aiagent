@@ -433,7 +433,7 @@ metadata:
 以下是这个 Skill 的系统指令内容，Agent 启动时自动融合。
 可以在这里写工作流程、规则、提示等。
 """
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
 

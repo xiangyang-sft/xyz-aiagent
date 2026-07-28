@@ -184,7 +184,7 @@ class SkillManager:
 
     def _load_skill_file(self, filepath: str) -> Optional[SkillDef]:
         """从 SKILL.md 文件加载"""
-        with open(filepath, "r") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
         return self._parse_skill_content(content, filepath)
 
