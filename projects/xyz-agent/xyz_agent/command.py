@@ -232,7 +232,7 @@ class CommandSystem:
         # /tools — 列出工具
         def tools_handler(args: str, ctx: CommandContext) -> str:
             registry = ctx.get("tool_registry")
-            if not registry:
+            if registry is None:
                 return "工具注册表未配置"
 
             tools = registry.list_tools()
@@ -254,7 +254,7 @@ class CommandSystem:
         # /skills — 列出 Skill
         def skills_handler(args: str, ctx: CommandContext) -> str:
             skill_mgr = ctx.get("skill_manager")
-            if not skill_mgr:
+            if skill_mgr is None:
                 return "Skill 管理器未配置"
 
             skills = skill_mgr.list_skills()
@@ -281,7 +281,7 @@ class CommandSystem:
         # /mcp — MCP 状态
         def mcp_handler(args: str, ctx: CommandContext) -> str:
             mcp_mgr = ctx.get("mcp_manager")
-            if not mcp_mgr:
+            if mcp_mgr is None:
                 return "MCP 管理器未配置"
 
             servers = mcp_mgr.list_servers()

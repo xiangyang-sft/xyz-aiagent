@@ -232,13 +232,30 @@ class Agent:
 
         # 构建 LLM 调用包装
         if self.provider:
-            def llm_call_with_tools(messages, tools=None):
-                return self.provider.chat(
-                    messages=messages,
-                    tools=tools,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens,
+            def llm_call_with_tools(prompt_or_messages, tools_or_messages=None):
+                """兼容两种调用签名：
+                   - 传统模式: (prompt: str, messages: list) -> (response, tokens)
+                   - FC 模式:  (messages: list, tools: list|None) -> (response, tokens, tool_calls)
+                """
+                result = (
+                    self.provider.chat(
+                        messages=tools_or_messages or [],
+                        temperature=self.config.temperature,
+                        max_tokens=self.config.max_tokens,
+                    )
+                    if isinstance(prompt_or_messages, str)
+                    else self.provider.chat(
+                        messages=prompt_or_messages,
+                        tools=tools_or_messages,
+                        temperature=self.config.temperature,
+                        max_tokens=self.config.max_tokens,
+                    )
                 )
+                # Provider 统一返回三元组 (response, tokens, tool_calls)
+                # 传统模式只取前两个
+                if isinstance(prompt_or_messages, str):
+                    return result[0], result[1]
+                return result
             llm_fn = llm_call_with_tools
         else:
             llm_fn = self._default_llm
@@ -465,6 +482,10 @@ class Agent:
     def _default_llm(self, prompt_or_messages, tools=None):
         """默认 LLM 调用（提示用户配置）"""
         logger.warning("未配置 LLM Provider，使用模拟响应")
+        if isinstance(prompt_or_messages, str):
+            # 传统模式: 返回 (response, tokens)
+            return "最终答案: 这是一个模拟响应。请通过 Agent.from_openai(api_key=...) 配置真实的 LLM。", 50
+        # FC 模式: 返回 (response, tokens, tool_calls)
         return "最终答案: 这是一个模拟响应。请通过 Agent.from_openai(api_key=...) 配置真实的 LLM。", 50, None
 
     def _default_system_prompt(self) -> str:
