@@ -131,6 +131,7 @@ class ReActEngine:
         self.total_tokens = 0
         self.tool_call_count = 0
         self.retry_count = 0
+        self._consecutive_think = 0
         self._mode = self._detect_mode()
 
     def _detect_mode(self) -> str:
@@ -153,7 +154,10 @@ class ReActEngine:
         返回:
           最终答案字符串
         """
-        self.reset(question)
+        # 🔧 注意：chat() 模式下外层已经 reset() 了，这里不再重复 reset
+        # 只有第一次调用时才需要 reset
+        if not self.messages or all(m.get("role") == "system" for m in self.messages):
+            self.reset(question)
 
         step_count = 0
         while not self.done and step_count < self.config.max_steps:
@@ -181,7 +185,8 @@ class ReActEngine:
         self.total_tokens = 0
         self.tool_call_count = 0
         self.retry_count = 0
-
+        self._consecutive_think = 0
+        self.done = False
     # ============================================================
     # 单步执行
     # ============================================================
@@ -347,6 +352,7 @@ class ReActEngine:
         # 执行操作
         if step.type == ActionType.TOOL:
             self.tool_call_count += 1
+            self._consecutive_think = 0
             if self.tool_call_count > self.config.max_tool_calls:
                 step.type = ActionType.ERROR
                 step.content = f"达到最大工具调用次数 ({self.config.max_tool_calls})"
@@ -375,6 +381,7 @@ class ReActEngine:
                 })
 
         elif step.type == ActionType.ANSWER:
+            self._consecutive_think = 0
             self.done = True
             self.final_answer = step.content
             self.messages.append({
@@ -383,8 +390,17 @@ class ReActEngine:
             })
 
         elif step.type == ActionType.ERROR:
+            self._consecutive_think = 0
             self.error = step.content
             self.done = True
+
+        elif step.type == ActionType.THINK:
+            self._consecutive_think += 1
+            if self._consecutive_think >= 5:
+                # 连续 5 次思考 → 强制给出答案
+                self.done = True
+                self.final_answer = step.content
+                step.type = ActionType.ANSWER
 
         return step
 

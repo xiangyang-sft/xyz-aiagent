@@ -349,14 +349,18 @@ class Agent:
             return result
 
         # 如果是新对话，reset
-        if not self.engine or self.engine.done:
+        if not self.engine:
             self.engine.reset(message)
-        else:
+        elif self.engine.done:
+            # 引擎已结束：添加新消息，标记可继续
             self.engine.add_user_message(message)
             self.engine.done = False
+        else:
+            # 引擎还在运行中（上一步未完成）：添加新消息继续
+            self.engine.add_user_message(message)
 
-        # 运行
-        result = self.engine.run(message)
+        # 运行引擎（内部 run 不会再重复 reset）
+        result = self.engine.run("")
         self.last_output = result
         return result
 
