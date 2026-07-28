@@ -39,14 +39,32 @@ import shlex
 import logging
 from typing import Dict, List, Optional, Any
 
-from . import __version__
-from .agent import Agent, AgentConfig
-from .tool import ToolRegistry, tool as tool_decorator, _default_registry
-from .skill import SkillManager, load_skills, list_skills as _list_skills
-from .mcp_client import MCPManager
-from .providers import OpenAIProvider, MockProvider
-from .loader import ExtensionLoader, generate_sample_config
-from .cli_selector import interactive_select
+# ── 包路径修复 ──
+# 支持直接 python cli.py 运行时能正确找到 xyz_agent 包
+if __name__ == "__main__" and __package__ is None:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.dirname(script_dir)  # xyz-agent/
+    if project_dir not in sys.path:
+        sys.path.insert(0, project_dir)
+    os.chdir(project_dir)
+    # 将当前模块作为包的一部分重新导入
+    from xyz_agent import __version__
+    from xyz_agent.agent import Agent, AgentConfig
+    from xyz_agent.tool import ToolRegistry, tool as tool_decorator, _default_registry
+    from xyz_agent.skill import SkillManager, load_skills, list_skills as _list_skills
+    from xyz_agent.mcp_client import MCPManager
+    from xyz_agent.providers import OpenAIProvider, MockProvider
+    from xyz_agent.loader import ExtensionLoader, generate_sample_config
+    from xyz_agent.cli_selector import interactive_select
+else:
+    from . import __version__
+    from .agent import Agent, AgentConfig
+    from .tool import ToolRegistry, tool as tool_decorator, _default_registry
+    from .skill import SkillManager, load_skills, list_skills as _list_skills
+    from .mcp_client import MCPManager
+    from .providers import OpenAIProvider, MockProvider
+    from .loader import ExtensionLoader, generate_sample_config
+    from .cli_selector import interactive_select
 
 logger = logging.getLogger(__name__)
 
