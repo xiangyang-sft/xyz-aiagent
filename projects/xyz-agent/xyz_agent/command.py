@@ -1,30 +1,14 @@
 #!/usr/bin/env python3
-"""
-xyz_agent.command — 命令系统
+"""xyz_agent.command — 命令系统
 
-支持 Agent 内建命令和外部扩展命令的解析与执行。
-
-功能:
-  - 内建命令: /help, /tools, /skills, /mcp, /clear, /config, /version
-  - 外部命令: 通过命令注册表动态添加
-  - Slash 命令解析: 统一的 /cmd [args] 语法
-  - 自动补全支持（预留）
-
-用法:
-    cmd_system = CommandSystem()
-
-    @cmd_system.register("hello", "打招呼")
-    def hello_cmd(args: str, context: dict) -> str:
-        return f"你好，{args or '世界'}！"
-
-    result = cmd_system.execute("/hello 向阳")
+支持内建命令 (/help, /tools, /skills, /mcp, /clear, /config, /version)
+和外部扩展命令的解析与执行。
 """
 
-import re
 import shlex
 import logging
 from typing import Callable, Dict, List, Optional, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -45,17 +29,7 @@ class CommandDef:
 
 
 CommandContext = Dict[str, Any]
-"""命令执行上下文:
-  {
-    "agent": None | Agent,       # 当前 Agent 实例
-    "engine": None | Engine,     # 当前引擎实例
-    "tool_registry": None | ToolRegistry,
-    "skill_manager": None | SkillManager,
-    "mcp_manager": None | MCPManager,
-    "session_id": str,
-    "config": dict,
-  }
-"""
+"""命令执行上下文: agent/engine/tool_registry/skill_manager/mcp_manager/session_id/config"""
 
 
 # ============================================================
@@ -88,10 +62,6 @@ class CommandSystem:
 
     def set_context(self, **kwargs):
         """设置命令执行上下文"""
-        self._context.update(kwargs)
-
-    def update_context(self, **kwargs):
-        """更新上下文"""
         self._context.update(kwargs)
 
     def get_context(self) -> CommandContext:
@@ -184,16 +154,6 @@ class CommandSystem:
         except Exception as e:
             logger.error(f"命令 '{cmd_name}' 执行失败: {e}")
             return f"命令 /{cmd_name} 执行错误: {e}"
-
-    def execute_from_text(self, text: str) -> Optional[str]:
-        """
-        从文本中检测并执行命令
-
-        如果文本是命令则执行并返回结果，否则返回 None。
-        """
-        if self.is_command(text):
-            return self.execute(text)
-        return None
 
     def get_all_commands(self, include_hidden: bool = False) -> Dict[str, List[CommandDef]]:
         """按分类获取所有命令"""
@@ -374,7 +334,9 @@ def get_default_command_system() -> CommandSystem:
 def execute_command(text: str) -> Optional[str]:
     """快捷执行命令"""
     cmd = get_default_command_system()
-    return cmd.execute_from_text(text)
+    if cmd.is_command(text):
+        return cmd.execute(text)
+    return None
 
 
 def is_command(text: str) -> bool:

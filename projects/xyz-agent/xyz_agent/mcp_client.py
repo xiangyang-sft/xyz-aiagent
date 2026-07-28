@@ -1,22 +1,6 @@
 #!/usr/bin/env python3
 """
 xyz_agent.mcp — MCP (Model Context Protocol) 客户端
-
-实现 Model Context Protocol 协议，支持：
-  - stdio 传输（本地子进程 MCP 服务器）
-  - HTTP/SSE 传输（远程 MCP 服务器）
-  - 自动工具发现（list_tools）
-  - 工具调用（call_tool）
-  - 连接池和复用
-
-协议参考:
-  https://spec.modelcontextprotocol.io/
-
-用法:
-    mcp = MCPManager()
-    mcp.connect_stdio("npx", ["@modelcontextprotocol/server-filesystem", "/tmp"])
-    tools = mcp.discover_tools()
-    result = mcp.call_tool("server_name", "read_file", {"path": "/tmp/test.txt"})
 """
 
 import json
@@ -29,7 +13,6 @@ import sys
 import os
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
-from datetime import datetime
 
 from .tool import ToolRegistry
 
@@ -332,13 +315,9 @@ class MCPManager:
         return server
 
     def connect_http(self, name: str, url: str, api_key: Optional[str] = None):
-        """连接 HTTP MCP 服务器"""
-        # 预留 HTTP MCP 服务器实现
-        logger.warning(f"HTTP MCP 服务器 '{name}' 暂未实现，使用模拟模式")
-        # 创建一个模拟的 HTTP 连接
-        server = _HTTPMCPStub(name, url, api_key)
-        self._servers[name] = server
-        return server
+        """连接 HTTP MCP 服务器（预留）"""
+        logger.warning(f"HTTP MCP 服务器 '{name}' 暂未实现")
+        raise NotImplementedError("HTTP MCP 传输层尚未实现")
 
     def get_server(self, name: str) -> Optional[MCPServerConnection]:
         return self._servers.get(name)
@@ -369,10 +348,12 @@ class MCPManager:
                     # 注册到 ToolRegistry
                     if registry:
                         for tool in tools:
-                            registry.register_mcp(
-                                name=f"mcp:{name}:{tool.get('name', 'unknown')}",
-                                fn=self._make_mcp_callable(name, tool.get('name', '')),
-                                schema=tool,
+                            tool_name = tool.get('name', 'unknown')
+                            registry.register_fn(
+                                name=f"mcp:{name}:{tool_name}",
+                                fn=self._make_mcp_callable(name, tool_name),
+                                description=tool.get('description', ''),
+                                parameters=tool.get('inputSchema', tool.get('parameters', {})),
                             )
                 except Exception as e:
                     logger.warning(f"从 '{name}' 发现工具失败: {e}")
@@ -436,29 +417,3 @@ class MCPManager:
             return asyncio.run(coro)
 
 
-class _HTTPMCPStub(MCPServerConnection):
-    """HTTP MCP 服务器桩（预留实现）"""
-
-    def __init__(self, name: str, url: str, api_key: Optional[str] = None):
-        super().__init__(name)
-        self._url = url
-        self._api_key = api_key
-        self._http_session = None
-
-    async def connect(self):
-        logger.info(f"HTTP MCP 桩已创建 '{self.name}': {self._url}")
-        self._connected = True
-        self.server_info = {"name": self.name, "version": "0.1.0 (stub)"}
-
-    async def disconnect(self):
-        self._connected = False
-
-    async def send_request(self, method: str, params: Optional[Dict] = None) -> Dict:
-        # 返回桩响应
-        logger.warning(f"MCP 桩: {method} (需要实现 HTTP 传输层)")
-        if method == "tools/list":
-            return {"tools": []}
-        return {"result": f"[MCP 桩响应: {method}]"}
-
-    async def list_tools(self) -> List[Dict]:
-        return []

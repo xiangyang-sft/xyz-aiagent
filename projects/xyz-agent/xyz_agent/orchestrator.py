@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-xyz_agent.orchestrator — 多 Agent 编排引擎
+xyz_agent.orchestrator -- 多 Agent 编排引擎
 
-支持三种协作模式：
-  1. 编排式 (Orchestrated) — Supervisor 分配任务给 Workers
-  2. 协商式 (Debate) — 多个 Agent 辩论达成共识
-  3. Pipeline — 流水线串联执行
+支持编排、协商、流水线三种协作模式。
 """
 
 import json
@@ -13,7 +10,6 @@ import time
 import hashlib
 from typing import Callable, Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 
 from .agent import Agent, AgentConfig
@@ -277,7 +273,7 @@ class Orchestrator:
         """检查是否达成共识"""
         if len(debate_results) < 2:
             return False
-        # 简单检查：上一轮和当前轮的主要观点是否一致
+        # TODO: 当前用 set 字符串相等判断共识，过于粗糙，后续可引入语义相似度或 LLM 判断
         prev = set(debate_results[-2].values())
         curr = set(debate_results[-1].values())
         return len(prev & curr) > 0
@@ -292,10 +288,10 @@ class Orchestrator:
 # 快捷函数
 # ============================================================
 
-def create_pipeline_agent(name: str, role: str, llm_fn: Callable) -> Agent:
+def create_pipeline_agent(name: str, role: str, provider: Callable) -> Agent:
     """快速创建流水线 Agent"""
     return Agent(
-        llm_provider=llm_fn,
+        llm_provider=provider,
         config=AgentConfig(
             name=name,
             system_prompt=f"你是一个{role}。请在流水线中完成你的专业任务。",

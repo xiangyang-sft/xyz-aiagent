@@ -9,18 +9,15 @@ xyz_agent.tool — 工具系统
   - 参数校验（类型、必填）
   - 自动生成 OpenAI Function Calling Schema
   - 错误处理与重试
-  - MCP 集成接口（预留）
 """
 
 import inspect
-import json
 from typing import (
-    Any, Callable, Dict, List, Optional, Type, get_type_hints,
+    Any, Callable, Dict, List, Optional, get_type_hints,
     get_origin, get_args, Union,
 )
 from dataclasses import dataclass, field
 from datetime import datetime
-from functools import wraps
 
 
 # ============================================================
@@ -38,7 +35,7 @@ TYPE_MAP = {
 }
 
 
-def _py_type_to_json_schema(py_type: Type) -> Dict:
+def _py_type_to_json_schema(py_type: type) -> Dict:
     """将 Python 类型转换为 JSON Schema 类型描述"""
     origin = get_origin(py_type)
     if origin is Union:
@@ -72,7 +69,6 @@ class ToolDef:
     fn: Callable
     parameters: Dict = field(default_factory=dict)
     required: List[str] = field(default_factory=list)
-    schema: Optional[Dict] = None
     created_at: float = field(default_factory=lambda: datetime.now().timestamp())
 
 
@@ -119,26 +115,6 @@ class ToolRegistry:
             fn=fn,
             parameters=parameters or self._infer_params(fn),
             required=self._infer_required(fn),
-        )
-        tool_def.schema = self._build_openai_schema(tool_def)
-        self._tools[name] = tool_def
-        return tool_def
-
-    def register_mcp(
-        self,
-        name: str,
-        fn: Callable,
-        schema: Dict,
-    ) -> ToolDef:
-        """注册 MCP 格式的工具"""
-        tool_def = ToolDef(
-            name=name,
-            description=schema.get("description", ""),
-            fn=fn,
-            parameters=schema.get("inputSchema", schema.get("parameters", {})),
-            required=list(schema.get("inputSchema", {})
-                         .get("required", schema.get("required", []))),
-            schema=schema,
         )
         self._tools[name] = tool_def
         return tool_def
@@ -265,17 +241,6 @@ class ToolRegistry:
             and p.name not in ("self", "cls")
         ]
 
-    def _build_openai_schema(self, tool_def: ToolDef) -> Dict:
-        """构建 OpenAI 格式的工具 schema"""
-        return {
-            "type": "function",
-            "function": {
-                "name": tool_def.name,
-                "description": tool_def.description,
-                "parameters": tool_def.parameters,
-            },
-        }
-
 
 # ============================================================
 # @tool 装饰器（快捷方式）
@@ -318,11 +283,6 @@ def tool(fn=None, *, registry: Optional[ToolRegistry] = None):
 def get_all_tools() -> List[Dict]:
     """获取默认注册表中的所有工具"""
     return _default_registry.list_tools()
-
-
-def get_openai_tool_defs() -> List[Dict]:
-    """获取默认注册表的 OpenAI 格式工具定义"""
-    return _default_registry.get_openai_tools()
 
 
 def execute_tool(name: str, args: Dict) -> str:

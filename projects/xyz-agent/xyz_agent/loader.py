@@ -28,9 +28,7 @@ import logging
 import glob
 import importlib.util
 import sys
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
-from pathlib import Path
+from typing import Dict, List, Optional
 
 from .skill import SkillManager
 from .mcp_client import MCPManager
@@ -40,58 +38,23 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# 扩展配置
-# ============================================================
-
-@dataclass
-class ExtensionConfig:
-    """单个扩展的配置"""
-    name: str
-    enabled: bool = True
-    type: str = "skill"  # skill | mcp | command | python
-    source: str = ""     # 本地路径 | URL | pip 包名
-    config: Dict = field(default_factory=dict)
-
-
-# ============================================================
 # 示例扩展配置
 # ============================================================
 
 SAMPLE_CONFIG = """# xyz-agent 扩展配置
 # 将本文件放到 ~/.xyz-agent/extensions.yaml 即可生效
 
-# ---- Skill 扩展 ----
 skills:
   - name: research
     source: ~/.hermes/skills/research/
-    description: "研究技能"
     enabled: true
 
-  - name: coding
-    source: https://example.com/skills/coding/
-    description: "编程技能"
-    enabled: false
-
-# ---- MCP 服务器 ----
 mcp_servers:
   - name: filesystem
     command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-filesystem"
-      - /tmp
-    enabled: false  # 需要 Node.js + npx
-
-  - name: github
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-github"
-    env:
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
     enabled: false
 
-# ---- 外部命令 ----
 commands:
   - name: hello
     description: "自定义打招呼命令"
@@ -100,12 +63,6 @@ commands:
       def handler(args, ctx):
           return f"你好，{args or '世界'}！"
     enabled: true
-
-# ---- Python 插件 ----
-plugins:
-  - name: my_plugin
-    source: ~/.xyz-agent/plugins/my_plugin.py
-    enabled: false
 """
 
 
@@ -204,19 +161,6 @@ class ExtensionLoader:
                     config = yaml.safe_load(f) or {}
         except Exception as e:
             logger.error(f"加载扩展配置失败: {path}: {e}")
-            return 0
-
-        return self._process_config(config)
-
-    def load_config_text(self, text: str, format: str = "yaml") -> int:
-        """从字符串加载扩展配置"""
-        try:
-            if format == "json":
-                config = json.loads(text)
-            else:
-                config = yaml.safe_load(text) or {}
-        except Exception as e:
-            logger.error(f"解析扩展配置失败: {e}")
             return 0
 
         return self._process_config(config)

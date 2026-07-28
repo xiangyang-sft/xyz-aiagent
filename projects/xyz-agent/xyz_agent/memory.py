@@ -2,15 +2,13 @@
 """
 xyz_agent.memory — 记忆系统
 
-提供统一的记忆接口，三种记忆类型：
-  1. 短期记忆（ShortTermMemory） — 会话内的消息历史
-  2. 长期记忆（LongTermMemory） — 持久化存储的关键信息
-  3. RAG 记忆（RAGMemory） — 向量检索增强
+提供统一的记忆接口，两种记忆类型：
+  1. 长期记忆（LongTermMemory） — 持久化存储的关键信息
+  2. RAG 记忆（RAGMemory） — 向量检索增强
 
 设计原则：
   - 统一接口：add / search / clear
   - 可插拔后端（内存、文件、向量数据库）
-  - 混合记忆：自动管理短期→长期转移
 """
 
 import json
@@ -20,7 +18,6 @@ import re
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from collections import deque
 import hashlib
 
 
@@ -52,111 +49,7 @@ class BaseMemory:
 
 
 # ============================================================
-# 1. 短期记忆（环形缓冲区）
-# ============================================================
-
-@dataclass
-class ShortTermMemory(BaseMemory):
-    """
-    短期记忆 — 基于环形缓冲区的会话消息历史
-
-    特点:
-      - 固定容量，自动淘汰旧消息
-      - 支持自动摘要压缩（当超过容量时）
-      - 支持按角色过滤
-    """
-    max_messages: int = 50
-    summarize_fn: Optional[Callable[[List[Dict]], str]] = None
-
-    _messages: deque = field(default_factory=lambda: deque(maxlen=50))
-    _summaries: List[str] = field(default_factory=list)
-
-    def __post_init__(self):
-        self._messages = deque(maxlen=self.max_messages)
-
-    def add(self, content: str, metadata: Optional[Dict] = None) -> str:
-        """添加消息到短期记忆"""
-        msg_id = hashlib.md5(
-            f"{content}{time.time()}".encode()
-        ).hexdigest()[:8]
-
-        msg = {
-            "id": msg_id,
-            "content": content,
-            "timestamp": time.time(),
-            "metadata": metadata or {},
-        }
-
-        # 检查是否需要压缩
-        if len(self._messages) >= self.max_messages - 1:
-            self._maybe_summarize()
-
-        self._messages.append(msg)
-        return msg_id
-
-    def add_message(self, role: str, content: str) -> str:
-        """添加上下文消息（role + content）"""
-        return self.add(content, {"role": role})
-
-    def search(self, query: str, limit: int = 5) -> List[Dict]:
-        """关键词搜索短期记忆"""
-        query_lower = query.lower()
-        results = []
-        for msg in reversed(self._messages):
-            if query_lower in msg["content"].lower():
-                results.append(msg)
-                if len(results) >= limit:
-                    break
-        return results
-
-    def get_recent(self, limit: int = 5) -> List[Dict]:
-        """获取最近 N 条消息"""
-        return list(self._messages)[-limit:]
-
-    def get_messages(self, role: Optional[str] = None) -> List[Dict]:
-        """获取所有消息，可选按角色过滤"""
-        if role:
-            return [
-                m for m in self._messages
-                if m.get("metadata", {}).get("role") == role
-            ]
-        return list(self._messages)
-
-    def clear(self):
-        self._messages.clear()
-        self._summaries.clear()
-
-    def __len__(self) -> int:
-        return len(self._messages)
-
-    def _maybe_summarize(self):
-        """当短期记忆到达容量时，自动压缩"""
-        if self.summarize_fn and len(self._messages) >= 10:
-            # 合并最早的一半消息进行摘要
-            half = len(self._messages) // 2
-            early_msgs = list(self._messages)[:half]
-            summary = self.summarize_fn(early_msgs)
-            self._summaries.append(f"[摘要 {len(self._summaries) + 1}]: {summary}")
-            # 移除已摘要的部分
-            for _ in range(half):
-                self._messages.popleft()
-
-    def get_context(self, max_tokens: int = 4000) -> str:
-        """构建上下文字符串（用于 LLM 提示）"""
-        parts = []
-        if self._summaries:
-            parts.append("【之前对话摘要】\n" + "\n".join(self._summaries[-3:]))
-        if self._messages:
-            parts.append("【最近对话】")
-            for m in self.get_recent(10):
-                role = m.get("metadata", {}).get("role", "user")
-                content = m["content"][:200]
-                parts.append(f"  [{role}]: {content}")
-        return "\n".join(parts)
-
-
-# ============================================================
-# 2. 长期记忆（文件持久化）
+# 1. 长期记忆（文件持久化）
 # ============================================================
 
 @dataclass
@@ -296,7 +189,7 @@ class LongTermMemory(BaseMemory):
 
 
 # ============================================================
-# 3. RAG 记忆（内嵌 TF-IDF + 可选向量后端）
+# 2. RAG 记忆（内嵌 TF-IDF + 可选向量后端）
 # ============================================================
 
 @dataclass
@@ -455,27 +348,24 @@ class RAGMemory(BaseMemory):
 
 
 # ============================================================
-# 4. 混合记忆系统
+# 3. 混合记忆系统
 # ============================================================
 
 @dataclass
 class MemorySystem:
     """
-    混合记忆系统 — 统一管理三种记忆
+    混合记忆系统 — 统一管理长期记忆和 RAG 记忆
 
     自动决策：
-      - 短期记忆放对话上下文
       - 重要信息提取到长期记忆
       - 知识文档放入 RAG
     """
-    short_term: ShortTermMemory = field(default_factory=ShortTermMemory)
     long_term: LongTermMemory = field(default_factory=LongTermMemory)
     rag: RAGMemory = field(default_factory=RAGMemory)
 
     def add_conversation(self, role: str, content: str):
         """添加对话消息"""
-        # 短期记忆：保留上下文
-        self.short_term.add_message(role, content)
+        pass
 
     def add_knowledge(self, content: str, metadata: Optional[Dict] = None,
                       importance: float = 0.5):
@@ -489,18 +379,13 @@ class MemorySystem:
     def search(self, query: str, limit: int = 5) -> Dict[str, List]:
         """跨所有记忆系统搜索"""
         return {
-            "short_term": self.short_term.search(query, limit),
             "long_term": self.long_term.search(query, limit),
             "rag": self.rag.search(query, limit),
         }
 
     def get_context(self, query: str) -> str:
-        """构建完整的上下文（短期+长期+RAG）"""
+        """构建完整的上下文（长期+RAG）"""
         parts = []
-
-        # 短期（最近对话）
-        if len(self.short_term) > 0:
-            parts.append(self.short_term.get_context())
 
         # 长期（相关记忆）
         long_results = self.long_term.search(query, limit=3)
@@ -518,6 +403,5 @@ class MemorySystem:
 
     def clear(self):
         """清空所有记忆"""
-        self.short_term.clear()
         self.long_term.clear()
         self.rag.clear()

@@ -1,24 +1,8 @@
 #!/usr/bin/env python3
-"""
-xyz_agent.engine — ReAct 循环引擎（v2 — 生产版）
+"""xyz_agent.engine — ReAct 循环引擎 (v2 生产版)
 
-支持两种推理模式：
-  1. ReAct 模式 — 传统思考→行动→观察（文本解析工具调用）
-  2. Function Calling 模式 — 原生工具调用（适用于 OpenAI API）
-
-核心改进：
-  - 支持 Function Calling 原生格式工具调用
-  - 消息驱动的对话管理（OpenAI Chat 格式）
-  - 可中断、可恢复的单步执行
-  - 追踪/日志/统计
-  - 工具执行结果自动注入
-  - 支持迭代式反思（自纠正）
-
-设计原则：
-  - 核心引擎零外部依赖
-  - 纯函数式核心，易于测试
-  - 模式切换不改变上层 API
-"""
+支持 ReAct 文本解析与 Function Calling 两种推理模式。
+消息驱动、可中断可恢复的单步执行，零外部依赖。"""
 
 import json
 import re
@@ -40,7 +24,6 @@ class ActionType(Enum):
     """ReAct 循环中的动作类型"""
     THINK = "think"          # 思考步骤
     TOOL = "tool"            # 工具调用
-    OBSERVE = "observe"      # 工具观察
     ANSWER = "answer"        # 最终答案
     ERROR = "error"          # 错误状态
 
@@ -63,14 +46,12 @@ class ReActConfig:
     """ReAct 引擎配置"""
     max_steps: int = 15
     max_tool_calls: int = 20
-    timeout_per_step: float = 60.0
     verbose: bool = False
     mode: str = "auto"  # "react" | "function_calling" | "auto"
     tool_call_prefix: str = "动作"
     tool_args_prefix: str = "参数"
     think_prefix: str = "思考"
     answer_prefix: str = "最终答案"
-    max_retries: int = 2  # 工具失败重试次数
 
 
 # ============================================================
@@ -186,7 +167,6 @@ class ReActEngine:
         self.tool_call_count = 0
         self.retry_count = 0
         self._consecutive_think = 0
-        self.done = False
     # ============================================================
     # 单步执行
     # ============================================================
@@ -445,9 +425,9 @@ class ReActEngine:
             if role == "system":
                 continue  # 已在开头
             if role == "user":
-                lines.append(f"\n用户: {content[:500]}")
+                lines.append(f"\n用户: {content[-500:]}")
             elif role == "assistant":
-                lines.append(f"\n助手: {content[:500]}")
+                lines.append(f"\n助手: {content[-500:]}")
 
         # 步骤历史
         if self.steps:

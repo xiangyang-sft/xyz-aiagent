@@ -23,13 +23,11 @@ xyz_agent.agent — 高级 Agent 封装（v2 — 生产版）
     result = agent.run("帮我查资料")
 """
 
-import json
 import time
 import logging
 import os
-from typing import Callable, Dict, List, Optional, Any, Union
+from typing import Callable, Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from datetime import datetime
 
 from .engine import ReActEngine, ReActConfig, Step, ActionType
 from .tool import ToolRegistry, ToolDef, _default_registry, get_all_tools, execute_tool
@@ -118,7 +116,6 @@ class Agent:
         self.session_id = f"{self.name}_{int(time.time())}"
         self.created_at = time.time()
         self._tool_schemas: List[Dict] = []
-        self._last_step: Optional[Step] = None
 
     # ============================================================
     # 工厂方法
@@ -225,36 +222,34 @@ class Agent:
         self._build_engine()
         return self
 
-    def _build_engine(self):
-        """构建 ReAct 引擎"""
-        # 构建系统提示词
-        system_prompt = self._build_system_prompt()
+    def _build_llm_fn(self):
+        """构建 LLM 调用函数，兼容传统模式和 Function Calling 模式"""
+        if not self.provider:
+            return self._default_llm
 
-        # 构建 LLM 调用包装
-        if self.provider:
-            def llm_call_with_tools(prompt_or_messages, tools=None):
-                """兼容两种调用签名：
-                   - 传统模式: (prompt: str, messages: list) -> (response, tokens)
-                   - FC 模式:  (messages: list, tools: list|None) -> (response, tokens, tool_calls)
-                """
-                if isinstance(prompt_or_messages, str):
-                    # 传统模式：第一个参数是 prompt，tools 参数实际是 messages
-                    result = self.provider.chat(
-                        messages=tools or [],
-                        temperature=self.config.temperature,
-                        max_tokens=self.config.max_tokens,
-                    )
-                    return result[0], result[1]
-                # FC 模式：prompt_or_messages 是 messages，tools 就是 tools
-                return self.provider.chat(
-                    messages=prompt_or_messages,
-                    tools=tools,
+        def _llm_call(prompt_or_messages, tools=None):
+            if isinstance(prompt_or_messages, str):
+                # 传统模式：第一个参数是 prompt，tools 参数实际是 messages
+                result = self.provider.chat(
+                    messages=tools or [],
                     temperature=self.config.temperature,
                     max_tokens=self.config.max_tokens,
                 )
-            llm_fn = llm_call_with_tools
-        else:
-            llm_fn = self._default_llm
+                return result[0], result[1]
+            # FC 模式：prompt_or_messages 是 messages，tools 就是 tools
+            return self.provider.chat(
+                messages=prompt_or_messages,
+                tools=tools,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+
+        return _llm_call
+
+    def _build_engine(self):
+        """构建 ReAct 引擎"""
+        system_prompt = self._build_system_prompt()
+        llm_fn = self._build_llm_fn()
 
         # 构建工具执行器
         def tool_executor(name: str, args: Dict) -> str:
@@ -384,7 +379,6 @@ class Agent:
         if not self.engine:
             return None
         step = self.engine.step()
-        self._last_step = step
         return step
 
     @property
@@ -400,7 +394,7 @@ class Agent:
     # ============================================================
 
     def setup_tools(self, *tools: Callable):
-        """设置工具（注册可调用函数）"""
+        """注册工具函数"""
         for tool_fn in tools:
             self.tool_registry.register(tool_fn)
 
