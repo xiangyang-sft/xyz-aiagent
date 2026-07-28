@@ -43,6 +43,21 @@ User ──▶ Agent (统一入口)
 
 ## 快速开始
 
+### 🚀 一键启动 CLI（推荐）
+
+```bash
+xyz-agent chat
+```
+
+进入交互式 Shell 后：
+- 直接输入问题对话
+- `/skill` 交互式选择加载 Skill
+- `/model` 交互式切换模型
+- `/mcp` 交互式管理 MCP
+- `/commands` 浏览所有命令
+
+[📖 完整用户手册 →](USER_GUIDE.md)
+
 ### 安装
 
 ```bash

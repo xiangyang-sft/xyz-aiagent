@@ -1,268 +1,357 @@
 # 🧭 xyz-agent 用户手册
 
-> 版本 1.0 — 从启动到扩展，一站式指南
+> 版本 2.0 — 从安装到精通，一站式实操指南
+>
+> 核心原则：**先装好 → 启动 CLI → 交互式操作**
 
 ---
 
 ## 目录
 
 1. [快速安装](#1-快速安装)
-2. [启动 Agent](#2-启动-agent)
-3. [运行模式](#3-运行模式)
-4. [命令系统](#4-命令系统)
-5. [注册工具](#5-注册工具)
-6. [加载 Skill](#6-加载-skill)
-7. [连接 MCP](#7-连接-mcp)
-8. [扩展配置（YAML 文件）](#8-扩展配置yaml-文件)
-9. [Python 插件](#9-python-插件)
-10. [FAQ 常见问题](#10-faq-常见问题)
+2. [CLI 启动与常用命令](#2-cli-启动与常用命令)
+3. [配置 LLM 模型源](#3-配置-llm-模型源)
+4. [运行 Agent 的 4 种方式](#4-运行-agent-的-4-种方式)
+5. [交互式命令（Shell 模式）](#5-交互式命令shell-模式)
+6. [管理 Skill](#6-管理-skill)
+7. [连接 MCP 服务](#7-连接-mcp-服务)
+8. [注册工具](#8-注册工具)
+9. [扩展配置（YAML）](#9-扩展配置yaml)
 
 ---
 
 ## 1. 快速安装
 
 ```bash
-# 从本地源码安装
+# 1. 进入到项目目录
 cd projects/xyz-agent
+
+# 2. 安装 xyz-agent（源码模式）
 pip install -e .
-pip install pyyaml          # SKILL.md 解析必需
 
-# 可选：安装更多功能
-pip install openai httpx    # OpenAI API 调用
-pip install click            # CLI 增强
-```
+# 3. 安装必需依赖
+pip install pyyaml          # SKILL.md 解析
 
-**验证安装：**
+# 4. 可选：安装 LLM 调用支持
+pip install openai httpx    # 调用 OpenAI/OpenRouter/DeepSeek 等 API
 
-```python
-from xyz_agent import Agent, __version__
-print(f"xyz-agent v{__version__}")
+# 5. 验证安装
+xyz-agent --version
 # 输出: xyz-agent v1.0.0
 ```
 
 ---
 
-## 2. 启动 Agent
+## 2. CLI 启动与常用命令
 
-### 方式 A：一行启动（推荐）
+### 启动交互式 Shell（推荐）
+
+```bash
+# 最常用方式 — 进入交互式命令行
+xyz-agent chat
+
+# 或
+xyz-agent shell
+```
+
+启动后你会看到：
+
+```
+╭────────────────────────────────────────────────────────╮
+│               xyz-agent v1.0.0                         │
+│       生产级 AI Agent 框架                              │
+│       Skill · MCP · Tool · FC · Selector               │
+╰────────────────────────────────────────────────────────╯
+  模型: gpt-4o  工具: 3  Skill: 94
+  输入 /help 查看命令，/exit 退出
+
+│ 
+```
+
+### 常用 CLI 命令（非交互式）
+
+```bash
+# 单次运行（不进入 Shell）
+xyz-agent run "北京今天天气怎么样？"
+
+# 查看已加载的 Skill
+xyz-agent skill list
+
+# 列出工具
+xyz-agent tool list
+
+# 查看当前配置
+xyz-agent config
+
+# 查看帮助
+xyz-agent --help
+```
+
+### 退出 CLI
+
+```bash
+# 在 Shell 中输入：
+/exit          # 退出
+/quit          # 同上
+# 或按 Ctrl+C
+```
+
+---
+
+## 3. 配置 LLM 模型源
+
+### 方案 A：设置环境变量（推荐）
+
+Agent 启动时自动读取以下环境变量：
+
+| 环境变量 | 对应服务 | 获取方式 |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | OpenAI / 兼容 API | https://platform.openai.com/api-keys |
+| `OPENROUTER_API_KEY` | OpenRouter（多模型路由） | https://openrouter.ai/keys |
+| `DEEPSEEK_API_KEY` | DeepSeek | https://platform.deepseek.com/ |
+| `ANTHROPIC_API_KEY` | Anthropic Claude | https://console.anthropic.com/ |
+| `GOOGLE_API_KEY` | Google Gemini | https://aistudio.google.com/ |
+| `QWEN_API_KEY` | 通义千问 | https://dashscope.aliyun.com/ |
+
+```bash
+# 设置 API Key
+export OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+
+# 设置后启动 CLI，Agent 会自动使用该 Key
+xyz-agent chat
+```
+
+### 方案 B：在 CLI 中交互式切换模型
+
+进入 Shell 后，输入 `/model`：
+
+```
+🤖 选择模型（当前: gpt-4o）
+────────────────────────────────────────────────
+  ● gpt-4o                          OpenAI 旗舰模型，支持 Function Calling  [openai]  ← 当前
+    gpt-4o-mini                     OpenAI 轻量版，低成本高速度            [openai]
+    claude-sonnet-4                 Anthropic Claude Sonnet 4              [anthropic]
+    deepseek/deepseek-chat          DeepSeek V3/Chat                       [deepseek]
+    gemini/gemini-2.0-flash         Google Gemini 2.0 Flash（快速）        [gemini]
+    qwen/qwen-2.5-72b               通义千问 Qwen 2.5 72B                  [qwen]
+    openai/gpt-4o                   OpenRouter 路由: OpenAI GPT-4o          [openrouter]
+  ✏️  输入自定义模型                  手动输入模型名称
+────────────────────────────────────────────────
+↑↓ 选择  |  回车确认  |  / 过滤  |  ESC 取消
+```
+
+**操作方式：**
+- **↑↓ 方向键** — 上下浏览
+- **回车** — 选中并切换
+- **`/` 搜索关键词** — 例如输入 `/deepseek` 只显示 DeepSeek 模型
+- **选「输入自定义模型」** — 手动输入任意模型名
+
+切换后自动重建引擎，后续对话立即使用新模型。
+
+### 方案 C：配置多个模型源（Python 代码）
+
+```python
+from xyz_agent import Agent
+from xyz_agent.providers import OpenAIProvider
+
+agent = Agent.from_openai(api_key="sk-xxx", model="gpt-4o")
+
+# 运行时切换为 DeepSeek
+agent.provider = OpenAIProvider(
+    api_key="sk-xxx",               # 从 DEEPSEEK_API_KEY 读取
+    model="deepseek/deepseek-chat",
+    base_url="https://api.deepseek.com/v1",
+)
+agent.rebuild_engine()
+
+# 再切换为 OpenRouter
+agent.provider = OpenAIProvider(
+    api_key="sk-or-xxx",
+    model="anthropic/claude-sonnet-4",
+    base_url="https://openrouter.ai/api/v1",
+)
+agent.rebuild_engine()
+```
+
+### 方案 D：自定义兼容 API
+
+任何兼容 OpenAI API 格式的服务都可以用：
+
+```python
+agent.provider = OpenAIProvider(
+    api_key="你的 Key",
+    model="模型名称",
+    base_url="https://你的API地址/v1",
+)
+agent.rebuild_engine()
+```
+
+---
+
+## 4. 运行 Agent 的 4 种方式
+
+### 方式 1：CLI 交互式 Shell（推荐）
+
+```bash
+xyz-agent chat
+```
+
+进入后就是命令行对话，支持完整的 slash 命令系统。这是最推荐的使用方式。
+
+### 方式 2：单次运行
+
+```bash
+xyz-agent run "帮我查一下 ReAct 模式是什么"
+```
+
+适合脚本调用、自动化集成。
+
+### 方式 3：Python 代码调用
 
 ```python
 from xyz_agent import Agent
 
-agent = Agent.from_openai(
-    api_key="sk-...",    # 或设置环境变量 OPENAI_API_KEY
-    model="gpt-4o",      # 支持的模型
-)
+# 一行启动
+agent = Agent.from_openai(api_key="sk-xxx", model="gpt-4o")
+
+# 单次运行
 result = agent.run("北京的天气怎么样？")
 print(result)
-```
 
-### 方式 B：手动配置
-
-```python
-from xyz_agent import Agent, AgentConfig
-
-agent = Agent(config=AgentConfig(
-    name="my-agent",
-    model="gpt-4o",
-    temperature=0.7,
-    max_steps=15,
-    enable_skills=True,     # 自动加载 Skill
-    enable_commands=True,   # 启用命令系统
-    enable_mcp=False,       # MCP 可选
-    auto_load_skills=True,  # 自动扫描 Skill 目录
-    skill_dirs=["~/.hermes/skills/", "./skills/"],
-))
-agent.initialize()
-```
-
-### 方式 C：不用 API Key 也能跑（Mock 模式）
-
-```python
-from xyz_agent import Agent, MockProvider, AgentConfig
-
-agent = Agent(
-    llm_provider=MockProvider(default_response="最终答案: 模拟回复"),
-    config=AgentConfig(name="test"),
-)
-agent.initialize()
-result = agent.run("随便问什么")
-print(result)  # 最终答案: 模拟回复
-```
-
-### 快速查看 Agent 状态
-
-```python
-# 基本信息
-info = agent.get_info()
-print(info)
-# {'name': 'demo', 'version': '1.0.0', 'model': 'gpt-4o',
-#  'tools': 2, 'skills': 95, 'mcp_servers': 0, ...}
-
-# 运行统计
-stats = agent.get_stats()
-# {'total_steps': 3, 'tool_calls': 1, 'total_tokens': 450, ...}
-```
-
----
-
-## 3. 运行模式
-
-### 单次运行
-
-```python
-result = agent.run("帮我查一下ReAct模式是什么")
-```
-
-### 多轮对话
-
-```python
+# 多轮对话（自动保留上下文）
 agent.chat("你好，我叫向阳")
-agent.chat("你还记得我叫什么吗？")  # 保留上下文
-agent.chat("帮我一件事...")         # 自动延续
+agent.chat("你还记得我叫什么吗？")  # 记得！
 ```
 
-### 手动单步控制
+### 方式 4：Mock 模式（无 API Key 也能跑）
 
-```python
-agent.reset("写一首关于AI的诗")
-while not agent.done:
-    step = agent.step()
-    print(f"[{step.type.value}] {step.content[:50]}...")
+```bash
+# 没设置 API Key 时启动 CLI，自动进入 Mock 模式
+xyz-agent chat
+# ⚠️ 未检测到 OPENAI_API_KEY，使用 Mock 模式演示
 ```
+
+Mock 模式使用预设响应模拟 LLM，适合测试工具系统和 Skill 集成。
 
 ---
 
-## 4. 命令系统
+## 5. 交互式命令（Shell 模式）
 
-Agent 内置了 7 个命令，对话中输入 `/` 开头的命令即可使用。
+Shell 中输入 `/` 开头的命令，支持 **交互式选择器**（方向键上下选择 + 回车确认）。
 
-### 内建命令一览
+### 系统命令
 
 | 命令 | 功能 | 示例 |
 |:-----|:-----|:-----|
 | `/help` | 显示所有可用命令 | `/help` |
-| `/tools` | 列出所有注册的工具 | `/tools` |
-| `/skills` | 列出所有加载的 Skill | `/skills` |
-| `/mcp` | 查看 MCP 服务器连接状态 | `/mcp` |
-| `/clear` | 重置对话状态 | `/clear` 或 `/clear 新问题` |
-| `/config` | 查看当前配置 | `/config` |
-| `/version` | 查看版本号 | `/version` |
+| `/exit` | 退出 Shell | `/exit` |
+| `/clear` | 清屏 | `/clear` |
+| `/reset` | 重置 Agent 状态 | `/reset` |
 
-**使用示例：**
+### 交互式选择命令（核心功能）
 
-```python
-agent.chat("/help")      # 📋 可用命令: ...
-agent.chat("/tools")     # 🔧 可用工具 (3): ...
-agent.chat("/skills")    # 📦 已加载 Skill (95): ...
+| 命令 | 功能 | 操作方式 |
+|:-----|:-----|:---------|
+| `/skill` | **交互选择 Skill 并加载** | ↑↓选择 → 回车加载 |
+| `/model` | **交互切换模型** | ↑↓选择 → 回车切换 |
+| `/mcp` | **交互管理 MCP 服务器** | 菜单导航，多步操作 |
+| `/commands` | **浏览所有注册命令** | ↑↓选择 → 回车查看详情 |
+
+#### `/skill` — 选择加载 Skill
+
+```
+📦 已加载 Skill (94 个) — 上下键选择，回车加载
+─────────────────────────────────────────────────────
+    code-review                     代码审查       [software-development]
+    test-driven-development         TDD 工作流     [software-development]
+  ▸ systematic-debugging            系统调试        [software-development]
+    writing-plans                   编写实现计划    [software-development]
+    llama-cpp                       本地模型推理    [mlops]
+    obsidian                        笔记管理        [note-taking]
+    ...
+─────────────────────────────────────────────────────
+↑↓ 选择  |  回车加载  |  / 过滤  |  ESC 取消
 ```
 
-### 添加自定义命令
+- 直接回车选中 → 加载该 Skill 的全部工具和 system prompt
+- 输入 `/research` 过滤 → 只看 research 类 Skill
 
-```python
-@agent.command_system.register("hello", "打个招呼", usage="/hello [名字]")
-def hello_handler(args: str, ctx: dict) -> str:
-    return f"你好，{args or '世界'}！"
+#### `/model` — 切换模型
 
-# 现在可以直接用
-agent.chat("/hello 向阳")  # 你好，向阳！
+见 [方案 B](#方案-b在-cli-中交互式切换模型)
+
+#### `/mcp` — 管理 MCP 服务器
+
+输入 `/mcp` 后，弹出操作菜单：
+
+```
+🔌 MCP 管理
+──────────────────────────────────
+  📋  查看已连接的服务器
+  🔌  连接新服务器（预设模板）
+  🔌  连接新服务器（自定义）
+  📡  发现并注册 MCP 工具
+──────────────────────────────────
+↑↓ 选择  |  回车确认  |  ESC 取消
 ```
 
-或者在创建 Agent 前：
+**预设模板**（选第二个选项后可见）：
 
-```python
-from xyz_agent import CommandSystem
+| 模板 | 功能 | 需要 |
+|:-----|:-----|:----|
+| `filesystem` | 文件系统读写 | Node.js |
+| `github` | GitHub API 集成 | Node.js + GITHUB_TOKEN |
+| `playwright` | 浏览器自动化 | Node.js |
+| `sqlite` | SQLite 数据库查询 | uvx |
+| `fetch` | 网页内容抓取 | uvx |
+| `sequential-thinking` | 分步推理思考 | Node.js |
 
-cmd = CommandSystem()
+选择模板后自动连接，并询问是否同步发现工具。
 
-@cmd.register("ping", "检查 Agent 状态")
-def ping_handler(args, ctx):
-    return "pong! 🏓"
+#### `/commands` — 浏览命令
 
-# 注入到 Agent
-agent.command_system = cmd
-agent.initialize()
 ```
+📋 已注册命令（共 8 个）— 选中查看详情
+──────────────────────────────────
+    help                          显示帮助信息        [system]
+    tools                         列出所有工具        [system]
+  ▸ skills                        列出所有 Skill      [system]
+    mcp                           查看 MCP 状态       [system]
+    clear                         重置对话            [system]
+    config                        查看配置            [system]
+    version                       显示版本            [system]
+    hello                         打招呼              [general]
+──────────────────────────────────
+↑↓ 选择  |  回车查看  |  / 过滤  |  ESC 取消
+```
+
+选中后显示该命令的详细用法。
+
+### 传统列表命令
+
+| 命令 | 功能 |
+|:-----|:-----|
+| `/tool list` | 列出所有注册的工具 |
+| `/tool add <name> <desc>` | 快速注册桩工具 |
+| `/skill list` | 列出所有 Skill（文本方式） |
+| `/skill load <path>` | 从目录加载 Skill |
+| `/skill refresh` | 刷新所有 Skill |
+| `/mcp list` | 列出 MCP 服务器 |
+| `/mcp connect <name> <cmd> [args]` | 手动连接 MCP |
+| `/mcp disconnect <name>` | 断开 MCP |
+| `/mcp discover` | 同步 MCP 工具 |
+| `/config` | 查看当前配置 |
+| `/config set <key> <value>` | 修改配置 |
+| `/stats` | 运行统计 |
+| `/trace` | 步骤追踪 |
 
 ---
 
-## 5. 注册工具
-
-### 方式 A：@tool 装饰器（推荐）
-
-```python
-from xyz_agent import tool
-
-@tool
-def get_weather(city: str) -> str:
-    """查询指定城市当前天气"""
-    data = {"北京": "晴 25°C", "上海": "多云 28°C"}
-    return data.get(city, f"暂无{city}的数据")
-
-@tool
-def calculator(expr: str) -> str:
-    """计算数学表达式"""
-    allowed = set("0123456789+-*/(). ")
-    assert all(c in allowed for c in expr), "非法字符"
-    return f"{expr} = {eval(expr)}"
-```
-
-### 方式 B：ToolRegistry 手动注册
-
-```python
-from xyz_agent import ToolRegistry
-
-registry = ToolRegistry()
-
-registry.register_fn(
-    name="translate",
-    fn=lambda text, lang: f"[{text} -> {lang}]",
-    description="文本翻译",
-    parameters={
-        "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "要翻译的文本"},
-            "lang": {"type": "string", "description": "目标语言"},
-        },
-        "required": ["text", "lang"],
-    },
-)
-```
-
-### 方式 C：MCP 格式注册
-
-```python
-registry.register_mcp(
-    name="search_web",
-    fn=lambda query: f"[搜索: {query}]",
-    schema={
-        "description": "网络搜索",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-            },
-            "required": ["query"],
-        },
-    },
-)
-```
-
-### 工具命名规则
-
-```
-普通工具:     tool_name
-Skill 工具:   skill_name:tool_name
-MCP 工具:     mcp:server_name:tool_name
-```
-
----
-
-## 6. 加载 Skill
+## 6. 管理 Skill
 
 Skill = **知识 + 工具 + 工作流** 的可复用封装。每个 Skill 是一个目录下的 `SKILL.md` 文件。
 
-### 6.1 SKILL.md 格式
+### SKILL.md 格式
 
 ```
 skills/my-skill/
@@ -285,14 +374,12 @@ license: MIT
 metadata:
   hermes:
     tags: [关键词1, 关键词2]
-    related_skills: [other-skill]
 ---
 
-# My Skill 标题
+# My Skill
 
 ## 使用场景
 - 什么情况下会用到这个 Skill
-- 解决什么问题
 
 ## 提供的工具
 
@@ -312,164 +399,180 @@ metadata:
 ]
 ```
 
-以下是这个 Skill 的 system prompt 内容——
-会在 Agent 启动时自动融合到系统提示词中。
-可以在这里写工作流程、规则、示例等。
+以下是这个 Skill 的系统指令，Agent 启动时自动融合到提示词中。
 ```
 
-### 6.2 加载 Skill
+### 加载 Skill 的 3 种方式
 
-**自动加载（推荐）：**
+**方式 A：CLI 交互式选择（推荐）**
 
-```python
-# Agent 初始化时自动扫描 skill_dirs 目录
-agent = Agent(config=AgentConfig(
-    skill_dirs=["~/.hermes/skills/", "./skills/"]
-))
-agent.initialize()
+启动 Shell，输入 `/skill`，上下选择后回车即可：
 
-# 查看加载结果
-print(agent.chat("/skills"))
+```bash
+xyz-agent chat
+/skill
+# ↑↓ 选择 → 回车加载
 ```
 
-**手动加载：**
+**方式 B：从目录加载**
 
-```python
-from xyz_agent import SkillManager
-
-skill_mgr = SkillManager()
-skill_mgr.load_directory("~/.hermes/skills/")   # Hermes Agent 全部 Skill
-skill_mgr.load_directory("./skills/")            # 项目自带 Skill
-
-# 查看
-for s in skill_mgr:
-    print(f"  {s.name} v{s.version} — {s.description[:50]}")
+```bash
+xyz-agent skill load ~/.hermes/skills/
+# 或在 Shell 中：
+/skill load ~/.hermes/skills/
 ```
 
-**从字符串加载：**
+**方式 C：生成 Skill 模板**
 
-```python
-skill_mgr.load_skill("custom", """---
-name: custom
-description: 自定义 Skill
----
-你是编程助手，擅长 Python 和 JavaScript。
-""")
+```bash
+# 在 Shell 中：
+/skill generate ./skills/my-new-skill/SKILL.md
 ```
 
-### 6.3 已有的 Skill 模板
+### 已有的 Skill 模板
 
-你本机已经有的 Skill（来自 Hermes Agent），`/~/.hermes/skills/` 下包含 **95+ 个** 现成 Skill：
+本机 `~/.hermes/skills/` 下包含 **95+ 个** 现成 Skill（来自 Hermes Agent）：
 
-**🛠 开发类**
-- `code-review` — 代码审查
-- `test-driven-development` — TDD 工作流
-- `systematic-debugging` — 系统调试
-- `writing-plans` — 编写实现计划
-- `spike` — 技术预研
+| 分类 | 代表 Skill |
+|:-----|:-----------|
+| 开发 | `code-review`, `test-driven-development`, `systematic-debugging`, `writing-plans`, `spike` |
+| AI/ML | `llama-cpp`, `serving-llms-vllm`, `huggingface-hub`, `dspy` |
+| 文档 | `obsidian`, `arxiv`, `youtube-content` |
+| 创意 | `ascii-art`, `excalidraw`, `sketch` |
 
-**🤖 AI/ML 类**
-- `llama-cpp` — 本地模型推理
-- `serving-llms-vllm` — 模型服务
-- `huggingface-hub` — 模型下载/上传
-- `dspy` — 声明式 LM 编程
-
-**📝 文档类**
-- `obsidian` — 笔记管理
-- `arxiv` — 论文搜索
-- `youtube-content` — 视频转录/总结
-
-**🎨 创意类**
-- `ascii-art` — ASCII 艺术
-- `excalidraw` — 手绘风格图表
-- `sketch` — HTML 原型
-
-**更多...** 运行 `ls ~/.hermes/skills/` 查看完整列表！
+每个 Skill 包含 system prompt 和工具定义，加载后自动生效。
 
 ---
 
-## 7. 连接 MCP
+## 7. 连接 MCP 服务
 
 MCP (Model Context Protocol) 让你连接外部工具服务器，自动发现并注册工具。
 
-### 7.1 连接 stdio MCP 服务器（本地）
+### 方式 A：CLI 交互式连接
+
+```bash
+xyz-agent chat
+/mcp
+# 选择「连接新服务器（预设模板）」
+# ↑↓ 选择模板 → 回车确认 → 自动发现工具
+```
+
+### 方式 B：CLI 命令行连接
+
+```bash
+# Shell 中手动连接
+/mcp connect filesystem npx -y @modelcontextprotocol/server-filesystem /tmp
+/mcp discover
+
+# 断开
+/mcp disconnect filesystem
+```
+
+### 方式 C：Python 代码
 
 ```python
 from xyz_agent import Agent, AgentConfig
 
-# 创建支持 MCP 的 Agent
-agent = Agent(config=AgentConfig(
-    enable_mcp=True,
-    name="mcp-agent",
-))
+agent = Agent(config=AgentConfig(enable_mcp=True))
 agent.initialize()
 
 # 连接 MCP 服务器
 agent.setup_mcp(
-    name="filesystem",
-    command="npx",    # 需要 Node.js
+    name="fs",
+    command="npx",
     args=["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-    auto_connect=True,
 )
 
 # 发现并注册工具
 agent.discover_mcp_tools()
 
-# 现在可以直接用 MCP 工具了
-# 工具名格式: mcp:服务器名:工具名
+# 使用 MCP 工具（命名格式: mcp:服务器名:工具名）
 result = agent.run("帮我看看 /tmp 目录下有什么文件")
 ```
 
-### 7.2 更多 MCP 服务器示例
+### 更多 MCP 示例
 
 ```python
-# GitHub MCP
-agent.setup_mcp("github", "npx", [
-    "-y", "@modelcontextprotocol/server-github",
-])
+# GitHub
+agent.setup_mcp("github", "npx", ["-y", "@modelcontextprotocol/server-github"])
 
-# 数据库 MCP
-agent.setup_mcp("db", "npx", [
-    "-y", "@modelcontextprotocol/server-postgres",
-    "postgresql://user:pass@localhost/db",
-])
+# SQLite
+agent.setup_mcp("db", "uvx", ["mcp-server-sqlite", "--db-path", "/tmp/test.db"])
 
-# 自定义脚本 MCP
-agent.setup_mcp("custom", "python", [
-    "my_mcp_server.py",
-])
-```
+# 抓取网页
+agent.setup_mcp("fetch", "uvx", ["mcp-server-fetch"])
 
-### 7.3 直接用 MCPManager（不通过 Agent）
-
-```python
-from xyz_agent import MCPManager
-
-mcp = MCPManager()
-
-# 连接
-mcp.connect_stdio("fs", "npx", ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"])
-
-# 发现工具
-tools = mcp.discover_all_tools_sync()
-for server, count in tools.items():
-    print(f"{server}: {count} 个工具")
-
-# 调用工具
-result = mcp.call_tool_sync("fs", "read", {"path": "/tmp/test.txt"})
+# 自定义 Python 脚本
+agent.setup_mcp("custom", "python", ["my_mcp_server.py"])
 ```
 
 ---
 
-## 8. 扩展配置（YAML 文件）
+## 8. 注册工具
 
-通过 YAML 配置文件声明式管理所有扩展，不用写代码。
+### 方式 A：@tool 装饰器（推荐）
 
-### 8.1 配置文件位置
+```python
+from xyz_agent import tool
 
-创建 `~/.xyz-agent/extensions.yaml` 或项目根目录的 `extensions.yaml`，Agent 启动时自动发现。
+@tool
+def get_weather(city: str) -> str:
+    """查询指定城市当前天气"""
+    data = {"北京": "晴 25°C", "上海": "多云 28°C"}
+    return data.get(city, f"暂无{city}的数据")
 
-### 8.2 完整配置示例
+@tool
+def calculator(expr: str) -> str:
+    """计算数学表达式"""
+    allowed = set("0123456789+-*/(). ")
+    assert all(c in allowed for c in expr), "非法字符"
+    return f"{expr} = {eval(expr)}"
+```
+
+> 函数签名、类型注解、docstring 自动转为 LLM Function Calling Schema。
+
+### 方式 B：注册回调函数
+
+```python
+from xyz_agent import ToolRegistry
+from xyz_agent import _default_registry
+
+reg = _default_registry
+reg.register_fn(
+    name="translate",
+    fn=lambda text, lang: f"[{text} -> {lang}]",
+    description="文本翻译",
+    parameters={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "要翻译的文本"},
+            "lang": {"type": "string", "description": "目标语言"},
+        },
+        "required": ["text", "lang"],
+    },
+)
+```
+
+### 工具命名规则
+
+```
+普通工具:     tool_name
+Skill 工具:   skill_name:tool_name
+MCP 工具:     mcp:server_name:tool_name
+```
+
+---
+
+## 9. 扩展配置（YAML）
+
+### 生成示例配置
+
+```bash
+xyz-agent init
+# 生成 ~/.xyz-agent/extensions.yaml
+```
+
+### 完整配置示例
 
 ```yaml
 # ~/.xyz-agent/extensions.yaml
@@ -477,12 +580,8 @@ result = mcp.call_tool_sync("fs", "read", {"path": "/tmp/test.txt"})
 # ---- Skill 扩展 ----
 skills:
   - name: my-custom-skill
-    source: ~/.hermes/skills/research/   # 目录路径
+    source: ~/.hermes/skills/research/
     enabled: true
-
-  - name: remote-skill
-    source: https://example.com/skills/coding/
-    enabled: false
 
 # ---- MCP 服务器 ----
 mcp_servers:
@@ -492,7 +591,7 @@ mcp_servers:
       - -y
       - "@modelcontextprotocol/server-filesystem"
       - /tmp
-    enabled: false   # 需要 Node.js，默认关闭
+    enabled: false    # 需要 Node.js
 
   - name: github
     command: npx
@@ -500,197 +599,31 @@ mcp_servers:
       - -y
       - "@modelcontextprotocol/server-github"
     env:
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"   # 自动读取环境变量
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
     enabled: false
 
 # ---- 自定义命令 ----
 commands:
   - name: hello
     description: "打招呼"
-    source: inline                        # 内嵌 Python 代码
+    source: inline
     code: |
       def handler(args, ctx):
           return f"你好，{args or '世界'}！"
     enabled: true
-
-# ---- Python 插件 ----
-plugins:
-  - name: my_tools
-    source: ~/.xyz-agent/plugins/my_tools.plugin.py
-    enabled: true
 ```
 
-### 8.3 加载配置
-
-```python
-from xyz_agent import load_extensions, generate_sample_config
-
-# 生成示例配置
-generate_sample_config("~/.xyz-agent/extensions.yaml")
-
-# 加载默认位置的扩展
-info = load_extensions()
-print(info)
-# {'skills': 2, 'mcp_servers': 2, 'commands': 1, 'plugins': 1}
-
-# 或手动加载
-from xyz_agent import ExtensionLoader
-loader = ExtensionLoader()
-loader.load_config("extensions.yaml")
-loader.apply_to(
-    skill_manager=agent.skill_manager,
-    mcp_manager=agent.mcp_manager,
-    command_system=agent.command_system,
-)
-```
-
-### 8.4 独立配置文件
-
-也可以在扩展目录放单个配置文件：
-
-| 文件模式 | 类型 |
-|:---------|:-----|
-| `*.skill.yaml` / `*.skill.json` | Skill 定义 |
-| `*.mcp.yaml` / `*.mcp.json` | MCP 服务器 |
-| `*.command.yaml` / `*.command.json` | 自定义命令 |
-| `*.plugin.py` | Python 插件 |
+编辑后重启 Shell 生效。
 
 ---
 
-## 9. Python 插件
+## 快速问题排查
 
-插件是动态加载的 Python 文件，可以注册工具、命令、监听事件。
-
-### 9.1 创建插件
-
-创建 `my_plugin.plugin.py`：
-
-```python
-# my_plugin.plugin.py
-
-def setup(skill_manager=None, command_system=None,
-          mcp_manager=None, tool_registry=None):
-    """插件入口 — 自动被调用"""
-
-    # 注册命令
-    if command_system:
-        @command_system.register("status", "查看系统状态")
-        def status_handler(args, ctx):
-            import psutil
-            cpu = psutil.cpu_percent()
-            mem = psutil.virtual_memory().percent
-            return f"CPU: {cpu}% | 内存: {mem}%"
-
-    # 注册工具
-    if tool_registry:
-        def get_ip():
-            import requests
-            return requests.get("https://httpbin.org/ip").json()["origin"]
-
-        tool_registry.register_fn(
-            name="get_public_ip",
-            fn=get_ip,
-            description="获取本机公网 IP",
-        )
-```
-
-### 9.2 加载插件
-
-```yaml
-# extensions.yaml
-plugins:
-  - name: my_plugin
-    source: ~/.xyz-agent/plugins/my_plugin.plugin.py
-    enabled: true
-```
-
-或手动加载：
-
-```python
-from xyz_agent import ExtensionLoader
-
-loader = ExtensionLoader()
-loader.load_directory("~/.xyz-agent/plugins/")
-loader.apply_to(
-    skill_manager=agent.skill_manager,
-    command_system=agent.command_system,
-    tool_registry=agent.tool_registry,
-)
-```
-
----
-
-## 10. FAQ 常见问题
-
-### Q1：不用 OpenAI 能用吗？
-
-可以。你只需要提供任意 LLM 调用函数：
-
-```python
-def my_llm(messages, tools=None):
-    """实现你自己的 LLM 调用"""
-    response = ...  # 调用本地模型 / 其他 API
-    return response_text, token_count, tool_calls
-
-agent = Agent(llm_provider=my_llm)
-```
-
-框架还内置了 `OpenRouterProvider`、`MockProvider`。
-
-### Q2：Agent 启动时自动加载了哪些 Skill？
-
-默认扫描以下目录：
-- `~/.hermes/skills/` — Hermes Agent 的所有 Skill
-- `./skills/` — 项目本地 Skill
-
-### Q3：如何查看当前 Agent 有哪些工具和 Skill？
-
-```python
-agent.chat("/tools")    # 查看所有工具
-agent.chat("/skills")   # 查看所有 Skill
-```
-
-或在代码中：
-
-```python
-tools = agent.list_tools()
-skills = agent.list_skills()
-```
-
-### Q4：Engine 的两种模式有什么区别？
-
-| 模式 | 说明 | 适用场景 |
-|:-----|:-----|:---------|
-| ReAct 模式 | LLM 输出文本，框架解析工具调用 | 任何 LLM |
-| Function Calling | LLM 原生返回结构化工具调用 | OpenAI / 支持 FC 的模型 |
-
-自动检测：如果配置了 `tools`，自动启用 Function Calling 模式。
-
-### Q5：如何不使用自动加载？
-
-```python
-agent = Agent(config=AgentConfig(
-    auto_load_skills=False,
-    auto_load_extensions=False,
-))
-```
-
-### Q6：工具调用失败会怎么样？
-
-Engine 会捕获异常，把错误信息作为 observation 返回给 LLM，让 LLM 决定下一步（重试或用其他方法）。最多重试 `max_retries` 次。
-
-### Q7：可以和生产环境结合吗？
-
-可以。框架设计时考虑了生产需求：
-- 无外部依赖的核心引擎（仅 Python 标准库 + pyyaml）
-- 完整的追踪/日志系统 `agent.get_trace()`
-- 消息驱动的对话管理（可序列化、可恢复）
-- 模块化设计，每个子系统可单独使用、单独测试
-
-### Q8：更多示例？
-
-```bash
-# 运行全功能演示
-cd projects/xyz-agent
-python step4-production-demo.py
-```
+| 现象 | 原因 | 解决 |
+|:-----|:-----|:-----|
+| `Agent 已初始化 (gpt-4o)` 但回答是模拟数据 | 未设置 API Key | `export OPENAI_API_KEY=sk-xxx` |
+| `/mcp connect` 失败 | 缺少 Node.js 或 npx | 安装 Node.js: `brew install node` |
+| `/skill` 列表为空 | Skill 目录不存在 | `/skill load ~/.hermes/skills/` |
+| 切换模型后不生效 | 需要重建引擎 | 已在 `/model` 中自动调用 |
+| 中文乱码 | open() 缺 encoding | 已修复，`encoding="utf-8"` |
+| 方向键不工作 | 某些终端限制 | 试试 j/k 键代替 |
