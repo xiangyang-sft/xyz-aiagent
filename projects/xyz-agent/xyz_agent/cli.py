@@ -46,6 +46,7 @@ from .skill import SkillManager, load_skills, list_skills as _list_skills
 from .mcp_client import MCPManager
 from .providers import OpenAIProvider, MockProvider
 from .loader import ExtensionLoader, generate_sample_config
+from .cli_selector import interactive_select
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def _print_banner():
 {Style.CYAN}╭{'─' * 56}╮
 │{' ' * 18}xyz-agent v{__version__}{' ' * 20}│
 │{' ' * 12}{Style.DIM}生产级 AI Agent 框架{Style.RESET}{Style.CYAN}{' ' * 14}│
-│{' ' * 12}{Style.DIM}Skill · MCP · Tool · FC{Style.RESET}{Style.CYAN}{' ' * 12}│
+│{' ' * 12}{Style.DIM}Skill · MCP · Tool · FC · Selector{Style.RESET}{Style.CYAN}{' ' * 12}│
 ╰{'─' * 56}╯{Style.RESET}
 """
     print(banner)
@@ -190,9 +191,13 @@ COMMAND_HELP = """
     /tool remove <name>     移除工具
 
 {Style.CYAN}  Skill 管理{Style.RESET}
-    /skill list             列出所有已加载的 Skill
-    /skill load <path>      加载一个 Skill 目录
-    /skill refresh          刷新所有 Skill
+    /skill                 交互选择并自动加载 Skill（↑↓选择 + 回车确认）
+    /skill list            列出所有已加载的 Skill
+    /skill load <path>     加载一个 Skill 目录
+    /skill refresh         刷新所有 Skill
+
+{Style.CYAN}  模型管理{Style.RESET}
+    /model                 交互选择模型（↑↓选择 + 回车确认）
 
 {Style.CYAN}  MCP 管理{Style.RESET}
     /mcp list               查看 MCP 服务器状态
@@ -250,6 +255,10 @@ def _handle_slash_command(cmd: str, agent: Agent):
     # === 配置 ===
     elif command == "config":
         _handle_config_command(args, agent)
+
+    # === 模型 ===
+    elif command == "model":
+        _interactive_model_select(agent)
 
     # === 调试 ===
     elif command == "stats":
@@ -325,7 +334,7 @@ def _handle_tool_command(args: List[str], agent: Agent):
 
 def _handle_skill_command(args: List[str], agent: Agent):
     if not args:
-        print(f"{Style.YELLOW}用法: /skill list | /skill load <path> | /skill refresh{Style.RESET}")
+        _interactive_skill_select(agent)
         return
 
     sub = args[0].lower()
@@ -628,6 +637,185 @@ def cmd_config(args: List[str]):
         return
 
     _handle_config_command(args, agent)
+
+
+# ============================================================
+# 4a. 交互式选择器封装
+# ============================================================
+
+# 预定义的模型列表
+_MODEL_LIST = [
+    {"name": "gpt-4o",              "description": "OpenAI 旗舰模型，支持 Function Calling",        "provider": "openai"},
+    {"name": "gpt-4o-mini",         "description": "OpenAI 轻量版，低成本高速度",                  "provider": "openai"},
+    {"name": "gpt-4-turbo",         "description": "OpenAI GPT-4 Turbo",                           "provider": "openai"},
+    {"name": "gpt-3.5-turbo",       "description": "OpenAI 低成本模型",                             "provider": "openai"},
+    {"name": "claude-sonnet-4",     "description": "Anthropic Claude Sonnet 4",                    "provider": "anthropic"},
+    {"name": "claude-3.5-sonnet",   "description": "Anthropic Claude 3.5 Sonnet",                  "provider": "anthropic"},
+    {"name": "claude-3-haiku",      "description": "Anthropic Claude 3 Haiku（快速）",              "provider": "anthropic"},
+    {"name": "deepseek/deepseek-chat", "description": "DeepSeek V3/Chat",                          "provider": "deepseek"},
+    {"name": "deepseek/deepseek-reasoner", "description": "DeepSeek R1（推理增强）",                "provider": "deepseek"},
+    {"name": "gemini/gemini-2.0-flash", "description": "Google Gemini 2.0 Flash（快速）",          "provider": "gemini"},
+    {"name": "gemini/gemini-2.0-pro", "description": "Google Gemini 2.0 Pro",                     "provider": "gemini"},
+    {"name": "qwen/qwen-2.5-72b",  "description": "通义千问 Qwen 2.5 72B",                         "provider": "qwen"},
+    {"name": "openai/gpt-4o",      "description": "OpenRouter 路由: OpenAI GPT-4o",                "provider": "openrouter"},
+    {"name": "anthropic/claude-sonnet-4", "description": "OpenRouter 路由: Claude Sonnet 4",       "provider": "openrouter"},
+    {"name": "meta-llama/llama-3.3-70b", "description": "Meta Llama 3.3 70B（via OpenRouter）",    "provider": "openrouter"},
+]
+
+
+def _interactive_skill_select(agent: Agent):
+    """交互式 Skill 选择器 — 列出所有已加载 Skill，选中后自动加载"""
+    if agent.skill_manager is None:
+        print(f"{Style.YELLOW}✗ Skill 系统未启用 (config.enable_skills=True){Style.RESET}")
+        return
+
+    skills = agent.skill_manager.list_skills()
+    if not skills:
+        print(f"{Style.YELLOW}暂无可选的 Skill，请先通过 /skill load 加载{Style.RESET}")
+        return
+
+    # 准备选择列表
+    items = []
+    for s in sorted(skills, key=lambda x: (x.tags[0] if x.tags else "~", x.name)):
+        tag = s.tags[0] if s.tags else "未分类"
+        items.append({
+            "name": s.name,
+            "description": f"{s.description[:50] or '暂无描述'}  v{s.version}",
+            "tags": [tag],
+            "_raw": s,
+        })
+
+    selected = interactive_select(
+        items=items,
+        title=f"📦 已加载 Skill ({len(items)} 个) — 上下键选择，回车加载",
+        prompt="↑↓ 选择  |  回车加载  |  / 过滤  |  ESC 取消",
+    )
+
+    if selected is None:
+        return
+
+    skill_name = selected["name"]
+    skill = agent.skill_manager.get(skill_name)
+    if skill is None:
+        print(f"{Style.RED}✗ Skill '{skill_name}' 未找到{Style.RESET}")
+        return
+
+    # 重建引擎以注入新的 system prompt 和工具
+    agent.rebuild_engine()
+
+    tool_count = len(skill.tools)
+    print(f"{Style.GREEN}✓{Style.RESET} 已加载 {Style.BOLD}{skill.name}{Style.RESET} v{skill.version}")
+    if skill.description:
+        print(f"   {Style.DIM}{skill.description}{Style.RESET}")
+    if tool_count:
+        print(f"   {Style.CYAN}🔧 {tool_count} 个工具{Style.RESET}")
+    print(f"   {Style.DIM}路径: {skill.source_path or 'N/A'}{Style.RESET}")
+
+
+def _interactive_model_select(agent: Agent):
+    """交互式模型选择器 — 从预定义列表中选择，回车切换"""
+    # 标记当前使用的模型
+    current_model = agent.config.model if hasattr(agent.config, 'model') else "unknown"
+    current_provider_name = "unknown"
+    if agent.provider:
+        current_provider_name = type(agent.provider).__name__
+
+    items = []
+    for m in _MODEL_LIST:
+        label = m["name"]
+        is_current = (label == current_model)
+        prefix = "● " if is_current else "  "
+        desc = m["description"]
+        prov = f"  [{m['provider']}]"
+        if is_current:
+            desc += "  ← 当前"
+        items.append({
+            "name": prefix + label,
+            "description": desc + prov,
+            "tags": [m["provider"]],
+            "_model": m["name"],
+            "_provider": m["provider"],
+        })
+
+    # 添加自定义模型选项
+    items.append({
+        "name": "✏️  输入自定义模型",
+        "description": "手动输入模型名称（支持任何 OpenAI 兼容 API）",
+        "tags": ["custom"],
+        "_model": None,
+        "_provider": None,
+    })
+
+    selected = interactive_select(
+        items=items,
+        title=f"🤖 选择模型（当前: {current_model}）",
+        prompt="↑↓ 选择  |  回车确认  |  / 过滤  |  ESC 取消",
+    )
+
+    if selected is None:
+        return
+
+    model_name = selected["_model"]
+    provider_name = selected["_provider"]
+
+    # 自定义模型
+    if model_name is None:
+        from .cli_selector import input_text
+        model_name = input_text("输入模型名称", default=current_model)
+        if not model_name:
+            print(f"{Style.YELLOW}已取消{Style.RESET}")
+            return
+        provider_name = "openai"  # 默认 OpenAI 兼容
+
+    # 切换 provider
+    if provider_name == "openai":
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            model=model_name,
+        )
+    elif provider_name == "deepseek":
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+            model=model_name,
+            base_url="https://api.deepseek.com/v1",
+        )
+    elif provider_name == "openrouter":
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+            model=model_name,
+            base_url="https://openrouter.ai/api/v1",
+        )
+    elif provider_name == "anthropic":
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            model=model_name,
+            base_url="https://api.anthropic.com/v1",
+        )
+    elif provider_name == "gemini":
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("GOOGLE_API_KEY", ""),
+            model=model_name,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+    elif provider_name == "qwen":
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("QWEN_API_KEY", ""),
+            model=model_name,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+    else:
+        agent.provider = OpenAIProvider(
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            model=model_name,
+        )
+
+    # 更新 config
+    agent.config.model = model_name
+
+    # 重建引擎
+    agent.rebuild_engine()
+
+    print(f"{Style.GREEN}✓{Style.RESET} 模型已切换为 {Style.BOLD}{model_name}{Style.RESET} ({provider_name})")
 
 
 # ============================================================
