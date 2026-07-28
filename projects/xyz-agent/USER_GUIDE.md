@@ -11,6 +11,12 @@
 1. [快速安装](#1-快速安装)
 2. [CLI 启动与常用命令](#2-cli-启动与常用命令)
 3. [配置 LLM 模型源](#3-配置-llm-模型源)
+   - [方案 A：设置环境变量（Windows）](#windows-系统)
+   - [方案 A：设置环境变量（macOS / Linux）](#macos--linux-系统)
+   - [多 API Key 同时配置](#所有平台通用多-api-key-同时配置需要哪个用哪个)
+   - [方案 B：CLI 交互式切换](#方案-b在-cli-中交互式切换模型)
+   - [方案 C：Python 代码配置](#方案-c配置多个模型源python-代码)
+   - [方案 D：自定义兼容 API](#方案-d自定义兼容-api)
 4. [运行 Agent 的 4 种方式](#4-运行-agent-的-4-种方式)
 5. [交互式命令（Shell 模式）](#5-交互式命令shell-模式)
 6. [管理 Skill](#6-管理-skill)
@@ -100,26 +106,132 @@ xyz-agent --help
 
 ## 3. 配置 LLM 模型源
 
-### 方案 A：设置环境变量（推荐）
+使用 Agent 的第一件事是配置 API Key。以下是 4 种配置方式。
 
-Agent 启动时自动读取以下环境变量：
+### 方案 A：设置环境变量（推荐，一劳永逸）
 
-| 环境变量 | 对应服务 | 获取方式 |
-|----------|---------|---------|
-| `OPENAI_API_KEY` | OpenAI / 兼容 API | https://platform.openai.com/api-keys |
-| `OPENROUTER_API_KEY` | OpenRouter（多模型路由） | https://openrouter.ai/keys |
-| `DEEPSEEK_API_KEY` | DeepSeek | https://platform.deepseek.com/ |
-| `ANTHROPIC_API_KEY` | Anthropic Claude | https://console.anthropic.com/ |
-| `GOOGLE_API_KEY` | Google Gemini | https://aistudio.google.com/ |
-| `QWEN_API_KEY` | 通义千问 | https://dashscope.aliyun.com/ |
+设置一次，后续打开终端或启动 CLI 自动生效。
+
+#### Windows 系统
+
+**方式 1：临时设置（当前终端窗口有效）**
+
+```cmd
+:: CMD 环境
+set OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+:: PowerShell 环境
+$env:OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+**方式 2：永久设置（推荐）**
+
+通过系统设置：
+```
+Windows 搜索 → "环境变量"
+   → 系统属性 → 环境变量(N)...
+   → 用户变量 → 新建(N)
+     → 变量名(N): OPENAI_API_KEY
+     → 变量值(V): sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   → 确定
+```
+设置后**需要重启终端**生效。
+
+或通过命令行永久设置（需要管理员权限）：
+```cmd
+:: CMD（管理员运行）
+setx OPENAI_API_KEY "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+:: PowerShell（管理员运行）
+[System.Environment]::SetEnvironmentVariable('OPENAI_API_KEY','sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','User')
+```
+
+**方式 3：每次启动 CLI 前自动设置**
+
+创建启动脚本 `start-agent.bat`：
+```bat
+@echo off
+set OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xyz-agent chat
+pause
+```
+双击运行即可。
+
+#### macOS / Linux 系统
+
+**方式 1：临时设置（当前终端窗口有效）**
 
 ```bash
-# 设置 API Key
-export OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+export OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
 
-# 设置后启动 CLI，Agent 会自动使用该 Key
+**方式 2：永久设置（推荐）**
+
+编辑 Shell 配置文件，追加一行：
+
+```bash
+# 编辑你的 Shell 配置
+# bash 用户: ~/.bashrc 或 ~/.bash_profile
+# zsh 用户:  ~/.zshrc
+# 通用:     ~/.profile
+
+echo 'export OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"' >> ~/.bashrc
+
+# 然后重新加载
+source ~/.bashrc
+```
+
+验证是否生效：
+```bash
+echo $OPENAI_API_KEY
+# 应输出: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**方式 3：项目本地 .env 文件**
+
+项目根目录下创建 `.env` 文件：
+```bash
+cd projects/xyz-agent
+echo 'OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' >> .env
+```
+
+**所有平台通用：多 API Key 同时配置（需要哪个用哪个）**
+
+你可以在环境变量中同时配置多个 API Key：
+
+```bash
+# Linux/macOS: ~/.bashrc
+export OPENAI_API_KEY="sk-xxx"          # OpenAI / 兼容 API
+export DEEPSEEK_API_KEY="sk-xxx"        # DeepSeek
+export OPENROUTER_API_KEY="sk-or-xxx"   # OpenRouter
+export ANTHROPIC_API_KEY="sk-ant-xxx"   # Anthropic Claude
+export GOOGLE_API_KEY="xxx"             # Google Gemini
+export QWEN_API_KEY="sk-xxx"            # 通义千问
+```
+
+之后在 CLI 中用 `/model` 切换模型时，Agent 会自动读取对应的 API Key。
+
+**支持的模型源与环境变量对应表：**
+
+| 服务 / 模型源 | 环境变量 | API Key 获取地址 |
+|:-------------|:---------|:-----------------|
+| **OpenAI**（GPT-4o、GPT-4o-mini 等） | `OPENAI_API_KEY` | https://platform.openai.com/api-keys |
+| **OpenRouter**（多模型路由，支持 Claude / Llama 等） | `OPENROUTER_API_KEY` | https://openrouter.ai/keys |
+| **DeepSeek**（DeepSeek Chat / Reasoner） | `DEEPSEEK_API_KEY` | https://platform.deepseek.com/ |
+| **Anthropic**（Claude Sonnet / Haiku） | `ANTHROPIC_API_KEY` | https://console.anthropic.com/ |
+| **Google Gemini**（Gemini Flash / Pro） | `GOOGLE_API_KEY` | https://aistudio.google.com/ |
+| **通义千问**（Qwen 2.5） | `QWEN_API_KEY` | https://dashscope.aliyun.com/ |
+
+配置好环境变量后，启动 CLI：
+
+```bash
+# 启动交互式 Shell
 xyz-agent chat
 ```
+
+Agent 启动时会自动读取 `OPENAI_API_KEY` 并初始化 LLM Provider。
+之后你可以随时在 Shell 中执行 `/model` 切换到其他模型（如 DeepSeek 或 Claude），
+Agent 会自动读取对应环境变量中的 Key。
 
 ### 方案 B：在 CLI 中交互式切换模型
 
