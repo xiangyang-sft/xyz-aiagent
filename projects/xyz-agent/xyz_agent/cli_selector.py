@@ -4,15 +4,25 @@ xyz_agent.cli_selector — 交互式选择器（方向键上下选择 + 回车�
 
 纯标准库实现，无第三方依赖。
 支持：方向键 ↑↓、Vim 键 j/k、首页/末页、搜索过滤、彩色显示。
+跨平台兼容：Linux/macOS (termios) + Windows (msvcrt)。
 """
 
 import sys
 import os
-import termios
-import tty
 import re
 
-# ── 颜色 ──
+# ── 平台检测 ──
+
+_IS_WINDOWS = os.name == "nt"
+
+if _IS_WINDOWS:
+    import msvcrt
+else:
+    import termios
+    import tty
+
+
+# ── 颜色（Windows 10+ 支持 ANSI，低版本 fallback） ──
 
 class Style:
     GREEN = "\033[92m"
@@ -28,23 +38,63 @@ class Style:
 
 
 def _color(text: str, color: str) -> str:
-    if os.name == "nt":
-        return text
+    """给文本上色（Windows 不支持 ANSI 时返回原文本）"""
+    if _IS_WINDOWS:
+        # Windows 10 1511+ 支持 ANSI，尝试启用
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+            return f"{color}{text}{Style.RESET}"
+        except Exception:
+            return text
     return f"{color}{text}{Style.RESET}"
 
 
 # ── 终端控制 ──
 
 def _getch() -> str:
-    """读取一个键（阻塞）"""
+    """
+    读取一个按键（阻塞）。
+
+    POSIX:   termios raw mode + sys.stdin.read(1)
+    Windows: msvcrt.getch()
+    """
+    if _IS_WINDOWS:
+        ch = msvcrt.getch()
+        # 方向键等扩展键 — getch 返回 \xe0 或 \x00，需要再读一次
+        if ch in (b'\xe0', b'\x00'):
+            ch2 = msvcrt.getch()
+            # 映射 Windows 扫描码 → ANSI 转义序列
+            mapping = {
+                b'H': '\x1b[A',   # ↑
+                b'P': '\x1b[B',   # ↓
+                b'M': '\x1b[C',   # →
+                b'K': '\x1b[D',   # ←
+                b'G': '\x1b[H',   # Home
+                b'O': '\x1b[F',   # End
+                b'I': '\x1b[5~',  # PageUp
+                b'Q': '\x1b[6~',  # PageDown
+            }
+            return mapping.get(ch2, '\x1b')
+        try:
+            result = ch.decode('utf-8')
+        except UnicodeDecodeError:
+            result = chr(ch[0]) if isinstance(ch, bytes) and len(ch) == 1 else ''
+        # 处理回车（Windows 下是 \r）
+        if result == '\r':
+            return '\n'
+        return result
+
+    # POSIX 实现
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
         ch = sys.stdin.read(1)
         # 处理转义序列
-        if ch == "\x1b":
-            more = sys.stdin.read(2) if os.name == "posix" else ""
+        if ch == '\x1b':
+            more = sys.stdin.read(2)
             return ch + more
         return ch
     finally:
@@ -52,7 +102,7 @@ def _getch() -> str:
 
 
 def _clear_lines(n: int):
-    """清除 n 行输出"""
+    """清除 n 行输出（ANSI 转义码，Windows 10+ 和 POSIX 均支持）"""
     for _ in range(n):
         sys.stdout.write("\033[2K\033[1A")  # 清除当前行 + 上移一行
     sys.stdout.write("\033[2K")  # 最后也清除
@@ -140,11 +190,11 @@ def interactive_select(
         print(f"{Style.YELLOW}(列表为空){Style.RESET}")
         return None
 
-    if width is None:
-        try:
-            width = os.get_terminal_size().columns
-        except Exception:
-            width = 80
+    # 自动获取终端宽度
+    try:
+        width = os.get_terminal_size().columns
+    except Exception:
+        width = width or 80
 
     # 初始显示
     filtered = list(items)
@@ -172,7 +222,7 @@ def interactive_select(
         if title:
             lines.append(f"\n {_color(title, Style.BOLD)}")
 
-        # 搜索行（如果是过滤模式）
+        # 搜索行
         if enable_search and query:
             lines.append(f" {_color('🔍', Style.YELLOW)} 搜索: {query}  {_color(f'{total_filtered}/{len(items)}', Style.DIM)}")
         elif enable_search:
@@ -189,10 +239,8 @@ def interactive_select(
             label = _format_item_compact(item)
 
             if is_sel:
-                # 选中行 — 高亮
                 prefix = _color("▸", Style.CYAN)
                 text = f" {prefix} {label}"
-                # 整行反色
                 text = _color(text, Style.REVERSE)
             else:
                 prefix = " "
@@ -200,7 +248,7 @@ def interactive_select(
 
             lines.append(f"  {text}")
 
-        # 补空白（保持高度一致）
+        # 补空白
         for _ in range(page_start + page_size - page_end):
             lines.append("")
 
@@ -214,8 +262,6 @@ def interactive_select(
     # 显示
     _display()
 
-    # 要输出的行数（不含搜索行，因为搜索行会单独刷新）
-    display_lines = len([l for l in (page_size + 4) if True])  # 大致行数
     display_lines = page_size + 5  # title + sep + items + padding + prompt
 
     while True:
@@ -244,10 +290,8 @@ def interactive_select(
 
         elif ch == "\r" or ch == "\n":  # 回车确认
             result = filtered[selected]
-            # 恢复光标
             print()
             if return_index:
-                # 返回在原列表中的索引
                 for idx, item in enumerate(items):
                     if item is filtered[selected]:
                         return idx
@@ -261,14 +305,12 @@ def interactive_select(
             if not enable_search:
                 _display()
                 continue
-            # 读取搜索内容
             query = ""
             while True:
-                # 显示当前搜索状态
                 sys.stdout.write(f" {_color('🔍', Style.YELLOW)} 搜索: {query}")
                 sys.stdout.flush()
                 sc = _getch()
-                sys.stdout.write("\033[2K\r")  # 清除搜索行
+                sys.stdout.write("\033[2K\r")
                 sys.stdout.flush()
 
                 if sc == "\r" or sc == "\n":
@@ -289,7 +331,7 @@ def interactive_select(
                     or q in _format_item(item).lower()
                 ]
                 if not filtered:
-                    filtered = items  # 无匹配时回退
+                    filtered = items
                     query = ""
                     break
                 selected = 0
@@ -332,19 +374,29 @@ def confirm(prompt_text: str = "确认?") -> bool:
 
 
 def input_text(prompt_text: str, default: str = "") -> str:
-    """带提示的文本输入"""
+    """
+    带提示的文本输入。
+
+    POSIX:   恢复终端行缓冲，用 sys.stdin.readline()
+    Windows: 标准 input() 即可（msvcrt 模式不需要特殊处理）
+    """
     if default:
         sys.stdout.write(f" {prompt_text} [{_color(default, Style.DIM)}]: ")
     else:
         sys.stdout.write(f" {prompt_text}: ")
     sys.stdout.flush()
 
-    # 恢复行缓冲模式读取一行
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        text = sys.stdin.readline().strip()
-    finally:
-        pass
+    if _IS_WINDOWS:
+        # Windows 下直接用标准 input
+        text = input().strip()
+    else:
+        # POSIX: 临时恢复终端设置读取一行
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            text = sys.stdin.readline().strip()
+        finally:
+            pass
+
     return text or default
