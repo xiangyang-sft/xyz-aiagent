@@ -103,7 +103,10 @@ class Agent:
 
         # 核心组件
         self.tool_registry = tool_registry or _default_registry
-        self.skill_manager = SkillManager(tool_registry=self.tool_registry) if self.config.enable_skills else None
+        if self.config.enable_skills:
+            self.skill_manager = SkillManager(tool_registry=self.tool_registry)
+        else:
+            self.skill_manager = None
         self.mcp_manager = MCPManager() if self.config.enable_mcp else None
         self.command_system = CommandSystem() if self.config.enable_commands else None
         self.loader = ExtensionLoader()

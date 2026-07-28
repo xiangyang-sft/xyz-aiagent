@@ -122,7 +122,10 @@ class StdioMCPServer(MCPServerConnection):
     通过子进程 stdio 通信的 MCP 服务器
 
     用法:
-        server = StdioMCPServer("fs", "npx", ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"])
+        server = StdioMCPServer(
+            "fs", "npx",
+            ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        )
         await server.connect()
     """
 

@@ -119,21 +119,25 @@ class ExtensionLoader:
 
         # Skill 配置
         for ext in ("yaml", "yml", "json"):
-            for filepath in glob.glob(os.path.join(directory, "**", f"*.skill.{ext}"), recursive=recursive):
+            pattern = os.path.join(directory, "**", f"*.skill.{ext}")
+            for filepath in glob.glob(pattern, recursive=recursive):
                 count += self._load_skill_config(filepath)
 
         # MCP 配置
         for ext in ("yaml", "yml", "json"):
-            for filepath in glob.glob(os.path.join(directory, "**", f"*.mcp.{ext}"), recursive=recursive):
+            pattern = os.path.join(directory, "**", f"*.mcp.{ext}")
+            for filepath in glob.glob(pattern, recursive=recursive):
                 count += self._load_mcp_config(filepath)
 
         # Command 配置
         for ext in ("yaml", "yml", "json"):
-            for filepath in glob.glob(os.path.join(directory, "**", f"*.command.{ext}"), recursive=recursive):
+            pattern = os.path.join(directory, "**", f"*.command.{ext}")
+            for filepath in glob.glob(pattern, recursive=recursive):
                 count += self._load_command_config(filepath)
 
         # Python 插件
-        for filepath in glob.glob(os.path.join(directory, "**", "*.plugin.py"), recursive=recursive):
+        pattern = os.path.join(directory, "**", "*.plugin.py")
+        for filepath in glob.glob(pattern, recursive=recursive):
             count += 1
             self._plugin_configs.append({
                 "name": os.path.splitext(os.path.basename(filepath))[0],
@@ -290,7 +294,11 @@ class ExtensionLoader:
                     else:
                         resolved_env[k] = v
                 try:
-                    mcp_manager.connect_stdio(name, command, args, env=resolved_env, auto_connect=False)
+                    mcp_manager.connect_stdio(
+                        name, command, args,
+                        env=resolved_env,
+                        auto_connect=False,
+                    )
                     count += 1
                 except Exception as e:
                     logger.warning(f"连接 MCP 服务器 '{name}' 失败: {e}")

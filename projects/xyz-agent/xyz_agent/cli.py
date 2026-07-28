@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
-"""xyz_agent.cli — 精简 CLI (~390 行)，slash 命令委托 command.py CommandSystem"""
+"""
+xyz_agent.cli — 命令行接口
 
-import sys, os, shlex, logging
+将 slash 命令委托给 command.py 的 CommandSystem 处理。
+保留 CLI 独有功能：/model /skill /mcp 交互式选择器、/trace /stats 调试。
+"""
+
+import sys
+import os
+import shlex
+import logging
 from typing import Dict, List, Optional
 
+# ── 包路径兼容 ──
 if __name__ == "__main__" and __package__ is None:
     d = os.path.dirname
     project_dir = d(d(os.path.abspath(__file__)))
-    if project_dir not in sys.path: sys.path.insert(0, project_dir)
+    if project_dir not in sys.path:
+        sys.path.insert(0, project_dir)
     os.chdir(project_dir)
+
     import importlib.util
-    spec = importlib.util.spec_from_file_location("xyz_agent.cli", __file__, submodule_search_locations=[])
+    spec = importlib.util.spec_from_file_location(
+        "xyz_agent.cli", __file__, submodule_search_locations=[]
+    )
     if spec:
         mod = importlib.util.module_from_spec(spec)
         mod.__package__ = "xyz_agent"
@@ -23,184 +36,393 @@ from .providers import OpenAIProvider, MockProvider
 from .cli_selector import interactive_select, Style
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# 彩色输出
+# ============================================================
+
 S = Style
 
+def _color(text: str, color: str) -> str:
+    if os.name == "nt":
+        return text
+    return f"{color}{text}{S.RESET}"
 
-def _color(t, c): return f"{c}{t}{S.RESET}" if os.name != "nt" else t
 
 def _print_banner():
-    print(f"""
-{S.CYAN}╭{'─'*56}╮
-│{' '*18}xyz-agent v{__version__}{' '*20}│
-│{' '*12}{S.DIM}生产级 AI Agent 框架{S.RESET}{S.CYAN}{' '*14}│
-│{' '*12}{S.DIM}Skill · MCP · Tool · FC · Selector{S.RESET}{S.CYAN}{' '*12}│
-╰{'─'*56}╯{S.RESET}""")
+    """打印启动 Banner"""
+    banner = f"""
+{S.CYAN}╭{'─' * 56}╮
+│{' ' * 18}xyz-agent v{__version__}{' ' * 20}│
+│{' ' * 12}{S.DIM}生产级 AI Agent 框架{S.RESET}{S.CYAN}{' ' * 14}│
+│{' ' * 12}{S.DIM}Skill · MCP · Tool · FC · Selector{S.RESET}{S.CYAN}{' ' * 12}│
+╰{'─' * 56}╯{S.RESET}"""
+    print(banner)
 
+
+# ============================================================
+# 全局 Agent 实例
+# ============================================================
 
 _agent: Optional[Agent] = None
 
+
 def _get_agent() -> Agent:
+    """获取或创建全局 Agent 实例"""
     global _agent
-    if _agent is None:
-        ak = os.environ.get("OPENAI_API_KEY", "")
-        if ak:
-            _agent = Agent.from_openai(api_key=ak)
-            _agent.config.enable_skills = True
-            _agent.config.enable_commands = True
-            _agent.config.auto_load_skills = True
-        else:
-            _agent = Agent(llm_provider=MockProvider(),
-                           config=AgentConfig(name="cli-agent", enable_skills=True, enable_commands=True, auto_load_skills=True))
-        _agent.initialize()
-        hs = os.path.expanduser("~/.hermes/skills/")
-        if _agent.skill_manager and os.path.isdir(hs):
-            c = _agent.skill_manager.load_directory(hs)
-            if c > 0: _agent.rebuild_engine(); logger.info(f"已加载 {c} 个 Hermes Agent Skill")
-        logger.info(f"Agent 已初始化 ({_agent.config.model})")
+    if _agent is not None:
+        return _agent
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if api_key:
+        _agent = Agent.from_openai(api_key=api_key)
+        _agent.config.enable_skills = True
+        _agent.config.enable_commands = True
+        _agent.config.auto_load_skills = True
+    else:
+        _agent = Agent(
+            llm_provider=MockProvider(),
+            config=AgentConfig(
+                name="cli-agent",
+                enable_skills=True,
+                enable_commands=True,
+                auto_load_skills=True,
+            ),
+        )
+
+    _agent.initialize()
+
+    # 加载 Hermes Agent 的 Skills
+    hermes_skills = os.path.expanduser("~/.hermes/skills/")
+    if _agent.skill_manager and os.path.isdir(hermes_skills):
+        count = _agent.skill_manager.load_directory(hermes_skills)
+        if count > 0:
+            _agent.rebuild_engine()
+            logger.info(f"已加载 {count} 个 Hermes Agent Skill")
+
+    logger.info(f"Agent 已初始化 ({_agent.config.model})")
     return _agent
 
 
+# ============================================================
+# 交互式 Shell
+# ============================================================
+
 def cmd_shell():
+    """交互式 Agent Shell"""
     agent = _get_agent()
     _print_banner()
+
     info = agent.get_info()
-    print(f"  {S.GREEN}模型:{S.RESET} {info['model']}  {S.GREEN}工具:{S.RESET} {info['tools']}  {S.GREEN}Skill:{S.RESET} {info['skills']}")
+    print(
+        f"  {S.GREEN}模型:{S.RESET} {info['model']}  "
+        f"{S.GREEN}工具:{S.RESET} {info['tools']}  "
+        f"{S.GREEN}Skill:{S.RESET} {info['skills']}"
+    )
     print(f"  输入 {S.YELLOW}/help{S.RESET} 查看命令，{S.YELLOW}/exit{S.RESET} 退出\n")
+
     while True:
         try:
-            inp = input(f"{S.BOLD}│ {S.CYAN}󰚩{S.RESET} ").strip()
-        except (EOFError, KeyboardInterrupt): print(); break
-        if not inp: continue
-        if inp in ("/exit", "/quit", ":q", "exit", "quit"): print(f"{S.YELLOW}再见！👋{S.RESET}"); break
-        if inp.startswith("/"): _handle_slash(inp, agent); continue
-        try:
-            r = agent.chat(inp); print(f"{S.GREEN}│{S.RESET} {r}")
-        except Exception as e: print(f"{S.RED}✗ 错误: {e}{S.RESET}")
+            user_input = input(f"{S.BOLD}│ {S.CYAN}󰚩{S.RESET} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
 
+        if not user_input:
+            continue
+
+        if user_input in (
+            "/exit", "/quit", ":q", "exit", "quit"
+        ):
+            print(f"{S.YELLOW}再见！👋{S.RESET}")
+            break
+
+        if user_input.startswith("/"):
+            _handle_slash(user_input, agent)
+            continue
+
+        try:
+            result = agent.chat(user_input)
+            print(f"{S.GREEN}│{S.RESET} {result}")
+        except Exception as e:
+            print(f"{S.RED}✗ 错误: {e}{S.RESET}")
+
+
+# ============================================================
+# Slash 命令处理
+# ============================================================
 
 def _handle_slash(raw: str, agent: Agent):
+    """处理 slash 命令"""
     parts = shlex.split(raw[1:])
-    if not parts: return
-    cmd, args = parts[0].lower(), parts[1:]
-
-    if cmd in ("help", "?"):
-        if agent.command_system: print(agent.command_system.execute(raw))
+    if not parts:
         return
-    if cmd == "clear": os.system("clear" if os.name == "posix" else "cls"); _print_banner(); return
-    if cmd == "reset": agent.reset(); print(f"{S.GREEN}✓ Agent 已重置{S.RESET}"); return
-    if cmd == "model": _model_select(agent); return
-    if cmd == "skill" and not args: _skill_select(agent); return
+
+    cmd = parts[0].lower()
+    args = parts[1:]
+
+    # 系统命令
+    if cmd in ("help", "?"):
+        if agent.command_system:
+            print(agent.command_system.execute(raw))
+        return
+
+    if cmd == "clear":
+        os.system("clear" if os.name == "posix" else "cls")
+        _print_banner()
+        return
+
+    if cmd == "reset":
+        agent.reset()
+        print(f"{S.GREEN}✓ Agent 已重置{S.RESET}")
+        return
+
+    # 交互式选择命令（CLI 独有）
+    if cmd == "model":
+        _model_select(agent)
+        return
+
+    if cmd == "skill" and not args:
+        _skill_select(agent)
+        return
+
     if cmd == "skill" and args and args[0] == "generate":
-        p = os.path.expanduser(args[1] if len(args) >= 2 else "./skills/my-skill/SKILL.md")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        _gen_skill(p); print(f"{S.GREEN}✓ 示例 Skill 已生成: {p}{S.RESET}"); return
-    if cmd == "mcp" and not args: _mcp_select(agent); return
-    if cmd in ("commands", "cmds"): _commands_list(agent); return
+        path = os.path.expanduser(
+            args[1] if len(args) >= 2 else "./skills/my-skill/SKILL.md"
+        )
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _gen_skill(path)
+        print(f"{S.GREEN}✓ 示例 Skill 已生成: {path}{S.RESET}")
+        return
+
+    if cmd == "mcp" and not args:
+        _mcp_select(agent)
+        return
+
+    if cmd in ("commands", "cmds"):
+        _commands_list(agent)
+        return
+
+    # 调试命令
     if cmd == "stats":
         print(f"{S.CYAN}运行统计:{S.RESET}")
-        for k, v in agent.get_stats().items(): print(f"  {k}: {v}")
+        for k, v in agent.get_stats().items():
+            print(f"  {k}: {v}")
         return
+
     if cmd == "trace" and agent.engine:
         print(f"{S.CYAN}步骤追踪:{S.RESET}")
         for t in agent.engine.get_trace(detail="full"):
             print(f"  Step {t['step']} [{t['type']}]: {t.get('content', '')[:80]}")
-            if t.get("tool_result"): print(f"    结果: {str(t['tool_result'])[:80]}")
+            if t.get("tool_result"):
+                print(f"    结果: {str(t['tool_result'])[:80]}")
         return
-    if agent.command_system:
-        r = agent.command_system.execute(raw)
-        if r: print(r)
-    else:
-        print(f"{S.YELLOW}未知命令: /{cmd}  输入 /help 查看可用命令{S.RESET}")
 
+    # 委托给 CommandSystem
+    if agent.command_system:
+        result = agent.command_system.execute(raw)
+        if result:
+            print(result)
+    else:
+        print(
+            f"{S.YELLOW}未知命令: /{cmd}  "
+            f"输入 /help 查看可用命令{S.RESET}"
+        )
+
+
+# ============================================================
+# 模型选择
+# ============================================================
 
 _MODELS = [
-    ("gpt-4o","OpenAI 旗舰","openai"), ("gpt-4o-mini","OpenAI 轻量版","openai"), ("gpt-4-turbo","OpenAI GPT-4 Turbo","openai"), ("gpt-3.5-turbo","OpenAI 低成本","openai"),
-    ("claude-sonnet-4","Claude Sonnet 4","anthropic"), ("claude-3.5-sonnet","Claude 3.5 Sonnet","anthropic"), ("claude-3-haiku","Claude 3 Haiku","anthropic"),
-    ("deepseek/deepseek-chat","DeepSeek V3/Chat","deepseek"), ("deepseek/deepseek-reasoner","DeepSeek R1 推理","deepseek"),
-    ("gemini/gemini-2.0-flash","Gemini 2.0 Flash","gemini"), ("gemini/gemini-2.0-pro","Gemini 2.0 Pro","gemini"),
-    ("qwen/qwen-2.5-72b","通义千问 Qwen 2.5 72B","qwen"),
-    ("openai/gpt-4o","OpenRouter: GPT-4o","openrouter"), ("anthropic/claude-sonnet-4","OpenRouter: Sonnet 4","openrouter"), ("meta-llama/llama-3.3-70b","OpenRouter: Llama 3.3 70B","openrouter"),
+    # OpenAI
+    ("gpt-4o",             "OpenAI 旗舰模型",           "openai"),
+    ("gpt-4o-mini",        "OpenAI 轻量版",             "openai"),
+    ("gpt-4-turbo",        "OpenAI GPT-4 Turbo",        "openai"),
+    ("gpt-3.5-turbo",      "OpenAI 低成本",             "openai"),
+    # Anthropic
+    ("claude-sonnet-4",    "Claude Sonnet 4",           "anthropic"),
+    ("claude-3.5-sonnet",  "Claude 3.5 Sonnet",         "anthropic"),
+    ("claude-3-haiku",     "Claude 3 Haiku",            "anthropic"),
+    # DeepSeek
+    ("deepseek/deepseek-chat",     "DeepSeek V3/Chat",  "deepseek"),
+    ("deepseek/deepseek-reasoner", "DeepSeek R1 推理",  "deepseek"),
+    # Gemini
+    ("gemini/gemini-2.0-flash", "Gemini 2.0 Flash",     "gemini"),
+    ("gemini/gemini-2.0-pro",   "Gemini 2.0 Pro",       "gemini"),
+    # 通义千问
+    ("qwen/qwen-2.5-72b",  "通义千问 Qwen 2.5 72B",    "qwen"),
+    # OpenRouter
+    ("openai/gpt-4o",              "OpenRouter: GPT-4o",  "openrouter"),
+    ("anthropic/claude-sonnet-4",  "OpenRouter: Sonnet 4","openrouter"),
+    ("meta-llama/llama-3.3-70b",   "OpenRouter: Llama 3.3 70B", "openrouter"),
 ]
 
-_PROV_CFG = {"openai":{"k":"OPENAI_API_KEY","u":None},"deepseek":{"k":"DEEPSEEK_API_KEY","u":"https://api.deepseek.com/v1"},"openrouter":{"k":"OPENROUTER_API_KEY","u":"https://openrouter.ai/api/v1"},"anthropic":{"k":"ANTHROPIC_API_KEY","u":"https://api.anthropic.com/v1"},"gemini":{"k":"GOOGLE_API_KEY","u":"https://generativelanguage.googleapis.com/v1beta/openai/"},"qwen":{"k":"QWEN_API_KEY","u":"https://dashscope.aliyuncs.com/compatible-mode/v1"}}
+_PROV_CFG = {
+    "openai":    {"k": "OPENAI_API_KEY",     "u": None},
+    "deepseek":  {"k": "DEEPSEEK_API_KEY",   "u": "https://api.deepseek.com/v1"},
+    "openrouter":{"k": "OPENROUTER_API_KEY", "u": "https://openrouter.ai/api/v1"},
+    "anthropic": {"k": "ANTHROPIC_API_KEY",  "u": "https://api.anthropic.com/v1"},
+    "gemini":    {"k": "GOOGLE_API_KEY",     "u": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+    "qwen":      {"k": "QWEN_API_KEY",       "u": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+}
 
-_MCP_TPL = [
-    ("filesystem","文件系统操作","npx",["-y","@modelcontextprotocol/server-filesystem","/tmp"]), ("github","GitHub API","npx",["-y","@modelcontextprotocol/server-github"]),
-    ("playwright","浏览器自动化","npx",["-y","@playwright/mcp"]), ("sqlite","SQLite 查询","uvx",["mcp-server-sqlite","--db-path","/tmp/test.db"]),
-    ("fetch","网页抓取","uvx",["mcp-server-fetch"]), ("sequential-thinking","分步推理","npx",["-y","@modelcontextprotocol/server-sequential-thinking"]),
-]
 
-
-def _model_select(agent):
+def _model_select(agent: Agent):
+    """交互式选择模型"""
     cur = agent.config.model
-    items = [{"name": n, "description": d + ("  ← 当前" if n == cur else ""), "tags": [p], "_m": n, "_p": p} for n, d, p in _MODELS]
-    items.append({"name":"✏️  自定义模型","description":"手动输入模型名称","tags":["custom"],"_m":None,"_p":None})
-    sel = interactive_select(items, title=f"🤖 选择模型（当前: {cur}）", prompt="↑↓ 选择  |  回车确认  |  / 过滤  |  ESC 取消")
-    if sel is None: return
-    mn, pn = sel["_m"], sel["_p"]
-    if mn is None:
+    items = []
+
+    for model_name, desc, provider in _MODELS:
+        label = desc + ("  ← 当前" if model_name == cur else "")
+        items.append({
+            "name": model_name,
+            "description": label,
+            "tags": [provider],
+            "_m": model_name,
+            "_p": provider,
+        })
+
+    items.append({
+        "name": "✏️  自定义模型",
+        "description": "手动输入模型名称",
+        "tags": ["custom"],
+        "_m": None,
+        "_p": None,
+    })
+
+    sel = interactive_select(
+        items,
+        title=f"🤖 选择模型（当前: {cur}）",
+        prompt="↑↓ 选择  |  回车确认  |  / 过滤  |  ESC 取消",
+    )
+    if sel is None:
+        return
+
+    model_name = sel["_m"]
+    provider_name = sel["_p"]
+
+    if model_name is None:
         from .cli_selector import input_text
-        mn = input_text("输入模型名称", default=cur)
-        if not mn: print(f"{S.YELLOW}已取消{S.RESET}"); return
-        pn = "openai"
-    cfg = _PROV_CFG.get(pn, {"k":"OPENAI_API_KEY","u":None})
-    agent.provider = OpenAIProvider(api_key=os.environ.get(cfg["k"],""), model=mn, base_url=cfg["u"])
-    agent.config.model = mn; agent.rebuild_engine()
-    print(f"{S.GREEN}✓{S.RESET} 模型已切换为 {S.BOLD}{mn}{S.RESET} ({pn})")
+        model_name = input_text("输入模型名称", default=cur)
+        if not model_name:
+            print(f"{S.YELLOW}已取消{S.RESET}")
+            return
+        provider_name = "openai"
 
-
-def _skill_select(agent):
-    if not agent.skill_manager: print(f"{S.YELLOW}✗ Skill 系统未启用{S.RESET}"); return
-    sk = agent.skill_manager.list_skills()
-    if not sk: print(f"{S.YELLOW}暂无可选的 Skill{S.RESET}"); return
-    items = [{"name":x.name,"description":f"{x.description[:50] or '暂无描述'} v{x.version}","tags":[x.tags[0] if x.tags else "未分类"],"_raw":x}
-             for x in sorted(sk, key=lambda s: (s.tags[0] if s.tags else "~", s.name))]
-    sel = interactive_select(items, title=f"📦 已加载 Skill ({len(items)} 个)", prompt="↑↓ 选择  |  回车加载  |  / 过滤  |  ESC 取消")
-    if sel is None: return
+    cfg = _PROV_CFG.get(provider_name, {"k": "OPENAI_API_KEY", "u": None})
+    agent.provider = OpenAIProvider(
+        api_key=os.environ.get(cfg["k"], ""),
+        model=model_name,
+        base_url=cfg["u"],
+    )
+    agent.config.model = model_name
     agent.rebuild_engine()
-    s = sel["_raw"]
-    parts = [f"{S.GREEN}✓{S.RESET} 已加载 {S.BOLD}{s.name}{S.RESET} v{s.version}"]
-    if s.description: parts.append(f"   {S.DIM}{s.description}{S.RESET}")
-    if s.tools: parts.append(f"   {S.CYAN}🔧 {len(s.tools)} 个工具{S.RESET}")
-    parts.append(f"   {S.DIM}路径: {s.source_path or 'N/A'}{S.RESET}")
+    print(f"{S.GREEN}✓{S.RESET} 模型已切换为 {S.BOLD}{model_name}{S.RESET} ({provider_name})")
+
+
+# ============================================================
+# Skill 选择
+# ============================================================
+
+def _skill_select(agent: Agent):
+    """交互式选择 Skill"""
+    if not agent.skill_manager:
+        print(f"{S.YELLOW}✗ Skill 系统未启用{S.RESET}")
+        return
+
+    skills = agent.skill_manager.list_skills()
+    if not skills:
+        print(f"{S.YELLOW}暂无可选的 Skill{S.RESET}")
+        return
+
+    items = []
+    for s in sorted(skills, key=lambda x: (x.tags[0] if x.tags else "~", x.name)):
+        desc = f"{s.description[:50] or '暂无描述'} v{s.version}"
+        tag = s.tags[0] if s.tags else "未分类"
+        items.append({
+            "name": s.name,
+            "description": desc,
+            "tags": [tag],
+            "_raw": s,
+        })
+
+    sel = interactive_select(
+        items,
+        title=f"📦 已加载 Skill ({len(items)} 个)",
+        prompt="↑↓ 选择  |  回车加载  |  / 过滤  |  ESC 取消",
+    )
+    if sel is None:
+        return
+
+    # 加载选中 Skill 的 system prompt（重建引擎）
+    agent.rebuild_engine()
+    skill = sel["_raw"]
+    parts = [f"{S.GREEN}✓{S.RESET} 已加载 {S.BOLD}{skill.name}{S.RESET} v{skill.version}"]
+    if skill.description:
+        parts.append(f"   {S.DIM}{skill.description}{S.RESET}")
+    if skill.tools:
+        parts.append(f"   {S.CYAN}🔧 {len(skill.tools)} 个工具{S.RESET}")
+    if skill.source_path:
+        parts.append(f"   {S.DIM}路径: {skill.source_path}{S.RESET}")
     print("\n".join(parts))
 
 
-def _mcp_select(agent):
+# ============================================================
+# MCP 管理
+# ============================================================
+
+_MCP_TPL = [
+    ("filesystem",           "文件系统操作",  "npx",
+     ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]),
+    ("github",               "GitHub API",    "npx",
+     ["-y", "@modelcontextprotocol/server-github"]),
+    ("playwright",           "浏览器自动化",  "npx",
+     ["-y", "@playwright/mcp"]),
+    ("sqlite",               "SQLite 查询",   "uvx",
+     ["mcp-server-sqlite", "--db-path", "/tmp/test.db"]),
+    ("fetch",                "网页抓取",      "uvx",
+     ["mcp-server-fetch"]),
+    ("sequential-thinking",  "分步推理",      "npx",
+     ["-y", "@modelcontextprotocol/server-sequential-thinking"]),
+]
+
+
+def _mcp_select(agent: Agent):
+    """交互式 MCP 管理"""
     from .cli_selector import confirm, input_text
-    acts = [{"name":"📋  查看已连接的服务器","description":"列出 MCP 服务器","_a":"list"},{"name":"🔌  连接（预设模板）","description":"从常用 MCP 模板中选择","_a":"tpl"},{"name":"🔌  连接（自定义）","description":"手动输入命令","_a":"cust"},{"name":"📡  发现 MCP 工具","description":"同步工具","_a":"disc"}]
-    a = interactive_select(acts, title="🔌 MCP 管理", prompt="↑↓ 选择  |  回车确认  |  ESC 取消")
-    if a is None: return
-    act = a["_a"]
+
+    acts = [
+        {"name": "📋  查看已连接的服务器", "description": "列出 MCP 服务器",
+         "_a": "list"},
+        {"name": "🔌  连接（预设模板）",   "description": "从常用 MCP 模板中选择",
+         "_a": "tpl"},
+        {"name": "🔌  连接（自定义）",     "description": "手动输入命令",
+         "_a": "cust"},
+        {"name": "📡  发现 MCP 工具",      "description": "同步工具",
+         "_a": "disc"},
+    ]
+
+    action = interactive_select(
+        acts,
+        title="🔌 MCP 管理",
+        prompt="↑↓ 选择  |  回车确认  |  ESC 取消",
+    )
+    if action is None:
+        return
+
+    act = action["_a"]
 
     if act == "list":
-        sv = agent.mcp_manager.list_servers() if agent.mcp_manager else []
-        if not sv: print(f"{S.YELLOW}没有连接的 MCP 服务器{S.RESET}"); return
-        print(f"{S.CYAN}MCP 服务器 ({len(sv)}):{S.RESET}")
-        for n in sv:
-            s = agent.mcp_manager.get_server(n)
-            st = f"{S.GREEN}✅{S.RESET}" if s and s.is_connected else f"{S.RED}❌{S.RESET}"
-            print(f"  {st} {S.BOLD}{n}{S.RESET} ({len(s.tools) if s else 0} 个工具)")
+        _mcp_list(agent)
         return
 
     if act == "tpl":
-        items = [{"name":n,"description":d+("  (已连接)" if agent.mcp_manager and n in agent.mcp_manager.list_servers() else ""),"tags":["mcp"],"_t":(n,c,a)} for n,d,c,a in _MCP_TPL]
-        sel = interactive_select(items, title="🔌 选择 MCP 模板", prompt="↑↓ 选择  |  回车连接  |  / 过滤  |  ESC 取消")
-        if sel is None: return
-        n, c, a = sel["_t"]
-        try:
-            agent.setup_mcp(n, c, a); print(f"{S.GREEN}✓{S.RESET} MCP {S.BOLD}{n}{S.RESET} 已连接")
-            if confirm("  同步发现工具?"): agent.discover_mcp_tools(); print(f"  {S.GREEN}✓{S.RESET} 工具已同步")
-        except Exception as e: print(f"{S.RED}✗ 连接失败: {e}{S.RESET}")
+        _mcp_connect_template(agent)
         return
 
     if act == "cust":
-        n = input_text("服务器名称"); c = input_text("命令", default="npx")
-        a = input_text("参数", default="-y @modelcontextprotocol/server-filesystem /tmp").split()
-        try:
-            agent.setup_mcp(n, c, a); print(f"{S.GREEN}✓{S.RESET} MCP {S.BOLD}{n}{S.RESET} 已连接")
-            if confirm("  同步发现工具?"): agent.discover_mcp_tools(); print(f"  {S.GREEN}✓{S.RESET} 工具已同步")
-        except Exception as e: print(f"{S.RED}✗ 连接失败: {e}{S.RESET}")
+        _mcp_connect_custom(agent)
         return
 
     if act == "disc":
@@ -208,24 +430,134 @@ def _mcp_select(agent):
         print(f"{S.GREEN}✓{S.RESET} MCP 工具已同步，当前共 {len(agent.list_tools())} 个工具")
 
 
-def _commands_list(agent):
+def _mcp_list(agent: Agent):
+    """列出 MCP 服务器"""
+    servers = agent.mcp_manager.list_servers() if agent.mcp_manager else []
+    if not servers:
+        print(f"{S.YELLOW}没有连接的 MCP 服务器{S.RESET}")
+        return
+
+    print(f"{S.CYAN}MCP 服务器 ({len(servers)}):{S.RESET}")
+    for name in servers:
+        server = agent.mcp_manager.get_server(name)
+        if server and server.is_connected:
+            status = f"{S.GREEN}✅{S.RESET}"
+        else:
+            status = f"{S.RED}❌{S.RESET}"
+        tool_count = len(server.tools) if server else 0
+        print(f"  {status} {S.BOLD}{name}{S.RESET} ({tool_count} 个工具)")
+
+
+def _mcp_connect_template(agent: Agent):
+    """从预设模板连接 MCP"""
+    items = []
+    for name, desc, cmd, args in _MCP_TPL:
+        already = agent.mcp_manager and name in agent.mcp_manager.list_servers()
+        label = desc + ("  (已连接)" if already else "")
+        items.append({
+            "name": name,
+            "description": label,
+            "tags": ["mcp"],
+            "_t": (name, cmd, args),
+        })
+
+    sel = interactive_select(
+        items,
+        title="🔌 选择 MCP 模板",
+        prompt="↑↓ 选择  |  回车连接  |  / 过滤  |  ESC 取消",
+    )
+    if sel is None:
+        return
+
+    name, cmd, args = sel["_t"]
+    _do_mcp_connect(agent, name, cmd, args)
+
+
+def _mcp_connect_custom(agent: Agent):
+    """手动输入连接 MCP"""
+    from .cli_selector import input_text
+    name = input_text("服务器名称")
+    cmd = input_text("命令", default="npx")
+    args_str = input_text(
+        "参数",
+        default="-y @modelcontextprotocol/server-filesystem /tmp",
+    )
+    args = args_str.split()
+    _do_mcp_connect(agent, name, cmd, args)
+
+
+def _do_mcp_connect(agent: Agent, name: str, cmd: str, args: List[str]):
+    """执行 MCP 连接"""
+    from .cli_selector import confirm
+    try:
+        agent.setup_mcp(name, cmd, args)
+        print(f"{S.GREEN}✓{S.RESET} MCP {S.BOLD}{name}{S.RESET} 已连接")
+
+        if confirm("  同步发现工具?"):
+            agent.discover_mcp_tools()
+            print(f"  {S.GREEN}✓{S.RESET} 工具已同步")
+    except Exception as e:
+        print(f"{S.RED}✗ 连接失败: {e}{S.RESET}")
+
+
+# ============================================================
+# 命令列表浏览
+# ============================================================
+
+def _commands_list(agent: Agent):
+    """浏览所有注册命令"""
     cs = agent.command_system
-    if not cs: print(f"{S.YELLOW}命令系统未启用{S.RESET}"); return
-    all_c = [{"name":d.name,"description":d.description,"tags":[c],"_d":d} for c,ds in sorted(cs.get_all_commands().items()) for d in sorted(ds, key=lambda x:x.name)]
-    if not all_c: print(f"{S.YELLOW}当前没有注册的命令{S.RESET}"); return
-    sel = interactive_select(all_c, title=f"📋 已注册命令（共 {len(all_c)} 个）", prompt="↑↓ 选择  |  回车查看  |  / 过滤  |  ESC 取消")
-    if sel is None: return
-    d = sel["_d"]
-    print(f"  {S.BOLD}/{d.name}{S.RESET}\n    分类: {S.CYAN}{sel['tags'][0]}{S.RESET}\n    描述: {d.description}\n    用法: {d.usage or f'/{d.name} [args]'}")
+    if not cs:
+        print(f"{S.YELLOW}命令系统未启用{S.RESET}")
+        return
+
+    all_cmds = []
+    for category, cmds in sorted(cs.get_all_commands().items()):
+        for c in sorted(cmds, key=lambda x: x.name):
+            all_cmds.append({
+                "name": c.name,
+                "description": c.description,
+                "tags": [category],
+                "_d": c,
+            })
+
+    if not all_cmds:
+        print(f"{S.YELLOW}当前没有注册的命令{S.RESET}")
+        return
+
+    sel = interactive_select(
+        all_cmds,
+        title=f"📋 已注册命令（共 {len(all_cmds)} 个）",
+        prompt="↑↓ 选择  |  回车查看  |  / 过滤  |  ESC 取消",
+    )
+    if sel is None:
+        return
+
+    cmd_def = sel["_d"]
+    print(
+        f"  {S.BOLD}/{cmd_def.name}{S.RESET}"
+        f"\n    分类: {S.CYAN}{sel['tags'][0]}{S.RESET}"
+        f"\n    描述: {cmd_def.description}"
+        f"\n    用法: {cmd_def.usage or f'/{cmd_def.name} [args]'}"
+    )
 
 
-def cmd_run(q: str): print(_get_agent().run(q))
-def cmd_chat(): cmd_shell()
+# ============================================================
+# 单次运行 & 工具函数
+# ============================================================
+
+def cmd_run(question: str):
+    """单次运行 Agent"""
+    print(_get_agent().run(question))
+
+
+def cmd_chat():
+    cmd_shell()
 
 
 def _gen_skill(path: str):
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("""---
+    """生成示例 SKILL.md 文件"""
+    content = """---
 name: my-skill
 description: "我的自定义 Skill — 简短描述这个 Skill 的功能"
 version: 1.0.0
@@ -265,8 +597,14 @@ metadata:
 
 以下是这个 Skill 的系统指令内容，Agent 启动时自动融合。
 可以在这里写工作流程、规则、提示等。
-""")
+"""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
 
+
+# ============================================================
+# 命令行入口
+# ============================================================
 
 USAGE = f"""\
 {S.CYAN}xyz-agent v{__version__}{S.RESET} — 生产级 AI Agent 框架
@@ -279,33 +617,54 @@ USAGE = f"""\
   xyz mcp list               查看 MCP 状态
   xyz config                 查看配置
   xyz --help                 显示帮助
-  xyz --version              显示版本
-"""
+  xyz --version              显示版本"""
 
 
 def main():
-    if len(sys.argv) < 2: print(USAGE); return
-    c, a = sys.argv[1], sys.argv[2:]
+    if len(sys.argv) < 2:
+        print(USAGE)
+        return
 
-    if c in ("--version", "-v", "version"): print(f"xyz-agent v{__version__}"); return
-    if c in ("--help", "-h", "help"): print(USAGE); return
-    if c in ("chat", "shell", "interactive"): cmd_shell(); return
+    cmd = sys.argv[1]
+    args = sys.argv[2:]
 
-    if c == "run":
-        if not a: print("请提供问题。用法: xyz run <问题>"); return
-        cmd_run(" ".join(a)); return
+    if cmd in ("--version", "-v", "version"):
+        print(f"xyz-agent v{__version__}")
+        return
 
-    if c == "init":
+    if cmd in ("--help", "-h", "help"):
+        print(USAGE)
+        return
+
+    if cmd in ("chat", "shell", "interactive"):
+        cmd_shell()
+        return
+
+    if cmd == "run":
+        if not args:
+            print("请提供问题。用法: xyz run <问题>")
+            return
+        cmd_run(" ".join(args))
+        return
+
+    if cmd == "init":
         from .loader import generate_sample_config
-        p = generate_sample_config(a[0] if a else "~/.xyz-agent/extensions.yaml")
-        print(f"✓ 示例配置已生成: {p}"); return
+        path = args[0] if args else "~/.xyz-agent/extensions.yaml"
+        out = generate_sample_config(path)
+        print(f"✓ 示例配置已生成: {out}")
+        return
 
+    # 委托给 CommandSystem
     agent = _get_agent()
-    if c in ("tool", "skill", "mcp", "config") and agent.command_system:
-        r = agent.command_system.execute(f"/{c} {' '.join(a)}" if a else f"/{c}")
-        print(r); return
+    if cmd in ("tool", "skill", "mcp", "config") and agent.command_system:
+        full_cmd = f"/{cmd} {' '.join(args)}" if args else f"/{cmd}"
+        result = agent.command_system.execute(full_cmd)
+        print(result)
+        return
 
-    print(f"未知命令: {c}"); print(USAGE); sys.exit(1)
+    print(f"未知命令: {cmd}")
+    print(USAGE)
+    sys.exit(1)
 
 
 if __name__ == "__main__":

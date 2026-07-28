@@ -118,7 +118,10 @@ class SkillManager:
         self._watch_dirs.append(directory)
         return count
 
-    def load_skill(self, name: str, content: str, source_path: Optional[str] = None) -> SkillDef:
+    def load_skill(
+        self, name: str, content: str,
+        source_path: Optional[str] = None,
+    ) -> SkillDef:
         """从字符串内容加载 skill（用于内存中创建）"""
         skill = self._parse_skill_content(content, source_path)
         skill.name = name
@@ -219,14 +222,17 @@ class SkillManager:
         if frontmatter.get("tools"):
             tools.extend(frontmatter["tools"])
 
+        metadata = frontmatter.get("metadata", {})
+        hermes_meta = metadata.get("hermes", {})
+
         return SkillDef(
             name=name,
             description=frontmatter.get("description", ""),
             version=frontmatter.get("version", "1.0.0"),
             author=frontmatter.get("author", ""),
             license=frontmatter.get("license", "MIT"),
-            tags=frontmatter.get("metadata", {}).get("hermes", {}).get("tags", []),
-            related_skills=frontmatter.get("metadata", {}).get("hermes", {}).get("related_skills", []),
+            tags=hermes_meta.get("tags", []),
+            related_skills=hermes_meta.get("related_skills", []),
             system_prompt=body,
             tools=tools,
             metadata=frontmatter.get("metadata", {}),

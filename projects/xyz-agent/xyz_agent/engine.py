@@ -468,7 +468,9 @@ class ReActEngine:
     # ============================================================
 
     _tool_pattern = re.compile(
-        r"(?:动作|工具|Action|Tool):\s*(\w[\w.-]*)\s*\n?\s*(?:参数|Args|Arguments|args):\s*(\{.*?\}|\[.*?\]|`[^`]+`)",
+        r"(?:动作|工具|Action|Tool):\s*(\w[\w.-]*)\s*"
+        r"\n?\s*(?:参数|Args|Arguments|args):\s*"
+        r"(\{.*?\}|\[.*?\]|`[^`]+`)",
         re.DOTALL | re.IGNORECASE,
     )
 

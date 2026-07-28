@@ -156,7 +156,8 @@ def _print_search_prompt(query: str, total: int, filtered: int):
         status = f"{_color(f'{filtered}/{total}', Style.YELLOW)} 匹配"
     else:
         status = _color(f"{total} 项", Style.DIM)
-    sys.stdout.write(f" {_color('🔍', Style.DIM)} 搜索: {query or _color('(输入过滤)', Style.DIM)}  {status}")
+    search_text = query or _color('(输入过滤)', Style.DIM)
+    sys.stdout.write(f" {_color('🔍', Style.DIM)} 搜索: {search_text}  {status}")
     sys.stdout.flush()
 
 
@@ -224,7 +225,8 @@ def interactive_select(
 
         # 搜索行
         if enable_search and query:
-            lines.append(f" {_color('🔍', Style.YELLOW)} 搜索: {query}  {_color(f'{total_filtered}/{len(items)}', Style.DIM)}")
+            search_info = _color(f'{total_filtered}/{len(items)}', Style.DIM)
+            lines.append(f" {_color('🔍', Style.YELLOW)} 搜索: {query}  {search_info}")
         elif enable_search:
             lines.append(f" {_color('🔍', Style.DIM)} 输入 / 过滤")
 
