@@ -9,7 +9,7 @@ setup(
     name="xyz-agent",
     version="1.0.0",
     description="生产级 AI Agent 框架 — 支持 Skill/MCP/Commands/Function Calling",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="向阳",
     url="https://github.com/xiangyang-sft/xyz-aiagent",
