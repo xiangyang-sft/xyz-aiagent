@@ -232,7 +232,7 @@ class Agent:
 
     def _load_default_skills(self):
         """加载默认位置的 Skills"""
-        if not self.skill_manager:
+        if self.skill_manager is None:
             return
         for directory in self.config.skill_dirs:
             self.skill_manager.load_directory(directory)

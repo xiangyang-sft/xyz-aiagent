@@ -251,7 +251,7 @@ def _get_agent() -> Agent:
 
     # 加载 Hermes Agent 的 Skills
     hermes_skills = os.path.expanduser("~/.hermes/skills/")
-    if _agent.skill_manager and os.path.isdir(hermes_skills):
+    if _agent.skill_manager is not None and os.path.isdir(hermes_skills):
         count = _agent.skill_manager.load_directory(hermes_skills)
         if count > 0:
             _agent.rebuild_engine()
@@ -468,7 +468,7 @@ def _model_select(agent: Agent):
 
 def _skill_select(agent: Agent):
     """交互式选择 Skill"""
-    if not agent.skill_manager:
+    if agent.skill_manager is None:
         print(f"{S.YELLOW}✗ Skill 系统未启用{S.RESET}")
         return
 
