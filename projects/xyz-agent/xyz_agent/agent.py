@@ -102,7 +102,7 @@ class Agent:
         self.name = self.config.name
 
         # 核心组件
-        self.tool_registry = tool_registry or _default_registry
+        self.tool_registry = tool_registry if tool_registry is not None else _default_registry
         if self.config.enable_skills:
             self.skill_manager = SkillManager(tool_registry=self.tool_registry)
         else:
@@ -329,12 +329,20 @@ class Agent:
         """构建完整的系统提示词"""
         parts = [self.config.system_prompt or self._default_system_prompt()]
 
-        # 注入 Skill system prompts
+        # 注入 Skill 摘要（只注入名称和描述，不注入完整内容）
         if self.skill_manager is not None:
-            skill_prompts = self.skill_manager.get_system_prompts()
-            if skill_prompts:
+            skills = self.skill_manager.list_skills()
+            if skills:
                 parts.append("\n\n[已加载的 Skill]")
-                parts.extend(skill_prompts)
+                for s in skills:
+                    tags_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+                    parts.append(f"  - {s.name}{tags_str}: {s.description[:100]}")
+                # 只在 skill 数量少时才注入完整 system prompt（避免超出上下文）
+                if len(skills) <= 5:
+                    full_prompts = self.skill_manager.get_system_prompts()
+                    if full_prompts:
+                        parts.append("\n[Skill 详情]")
+                        parts.extend(full_prompts)
 
         # 工具列表
         tools = self.tool_registry.list_tools()

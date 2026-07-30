@@ -69,7 +69,7 @@ class SkillManager:
 
     def __init__(self, tool_registry: Optional[ToolRegistry] = None):
         self._skills: Dict[str, SkillDef] = {}
-        self._tool_registry = tool_registry or ToolRegistry()
+        self._tool_registry = tool_registry if tool_registry is not None else ToolRegistry()
         self._watch_dirs: List[str] = []
 
     # ---- 加载 ----
