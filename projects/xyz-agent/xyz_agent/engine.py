@@ -11,7 +11,7 @@ import logging
 from typing import Callable, Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from .providers import StreamToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class ReActEngine:
         config: Optional[ReActConfig] = None,
         system_prompt: Optional[str] = None,
         tools: Optional[List[Dict]] = None,
+        llm_stream: Optional[Callable] = None,
     ):
         """
         参数:
@@ -96,12 +97,16 @@ class ReActEngine:
           config: 运行配置
           system_prompt: 系统提示词
           tools: OpenAI Function Calling 格式的工具列表
+          llm_stream: 流式 LLM 调用函数
+            (messages, tools, ...) -> Generator[str]
+            生成器逐 token 产出文本；当遇到 Function Calling 时抛出 StopIteration(tool_calls)
         """
         self.llm_call = llm_call
         self.tool_executor = tool_executor
         self.config = config or ReActConfig()
         self.system_prompt = system_prompt or self._default_system_prompt()
         self.tools = tools or []
+        self.llm_stream = llm_stream
 
         # 运行时状态
         self.messages: List[Dict] = []
@@ -150,6 +155,143 @@ class ReActEngine:
             self.done = True
 
         return self.final_answer or f"[错误: {self.error}]"
+
+    def run_stream(self, question: str):
+        """
+        流式运行 ReAct 循环。
+
+        逐 token 产出文本。在 Function Calling 模式下，每步的 LLM 输出实时流式，
+        工具调用时同步执行并将结果输出。
+
+        Yields:
+            str — 文本片断（流式输出）
+        """
+        # reset 状态
+        if not self.messages or all(m.get("role") == "system" for m in self.messages):
+            self.reset(question)
+
+        if not self.llm_stream:
+            # 没配流式时，回退到非流式
+            result = self.run(question)
+            yield result
+            return
+
+        step_count = 0
+        while not self.done and step_count < self.config.max_steps:
+            step_count += 1
+            start_time = time.time()
+            tokens = 0
+            collected_content = []
+
+            try:
+                # 流式调用 LLM
+                gen = self.llm_stream(
+                    self.messages,
+                    tools=self.tools if self.tools else None,
+                )
+
+                for chunk in gen:
+                    collected_content.append(chunk)
+                    yield chunk
+
+                # 生成器正常结束 => 无工具调用 => 最终答案
+                response = "".join(collected_content)
+                self.total_tokens += tokens
+                if response:
+                    self.messages.append({"role": "assistant", "content": response})
+                self.done = True
+                self.final_answer = response
+                step = Step(
+                    type=ActionType.ANSWER,
+                    content=response,
+                    duration=time.time() - start_time,
+                    token_count=tokens,
+                )
+                self.steps.append(step)
+
+            except StreamToolCall as si:
+                # 生成器通过 StreamToolCall 携带 tool_calls
+                tool_calls = si.tool_calls
+                response = "".join(collected_content)
+                self.total_tokens += tokens
+
+                # 加入助手消息（含工具调用）
+                if response or tool_calls:
+                    assistant_msg = {"role": "assistant", "content": response or None}
+                    if tool_calls:
+                        assistant_msg["tool_calls"] = [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tc["function"]["name"],
+                                    "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False),
+                                },
+                            }
+                            for tc in tool_calls
+                        ]
+                    self.messages.append(assistant_msg)
+
+                # 执行工具
+                if tool_calls:
+                    for tc in tool_calls:
+                        tool_name = tc["function"]["name"]
+                        tool_args = tc["function"]["arguments"]
+                        self.tool_call_count += 1
+
+                        if self.tool_call_count > self.config.max_tool_calls:
+                            msg = f"达到最大工具调用次数 ({self.config.max_tool_calls})"
+                            self.error = msg
+                            self.done = True
+                            yield f"\n[⚠ {msg}]\n"
+                            return
+
+                        # 执行
+                        if self.tool_executor:
+                            try:
+                                tool_result = self.tool_executor(tool_name, tool_args)
+                            except Exception as e:
+                                tool_result = f"[工具错误] {str(e)}"
+                        else:
+                            tool_result = "[未配置工具执行器]"
+
+                        self.messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": tool_result,
+                        })
+
+                        # 输出工具调用信息
+                        yield f"\n🔧 调用 {tool_name}({tool_args}) → {tool_result[:200]}\n"
+
+                        step = Step(
+                            type=ActionType.TOOL,
+                            content=f"调用工具: {tool_name}",
+                            tool_name=tool_name,
+                            tool_args=tool_args,
+                            tool_result=tool_result,
+                            duration=time.time() - start_time,
+                            token_count=tokens,
+                        )
+                        self.steps.append(step)
+
+            except Exception as e:
+                duration = time.time() - start_time
+                error_step = Step(
+                    type=ActionType.ERROR,
+                    content=f"LLM 调用失败: {e}",
+                    duration=duration,
+                )
+                self.steps.append(error_step)
+                self.error = str(e)
+                self.done = True
+                yield f"\n[错误: {e}]\n"
+                return
+
+        if not self.done and step_count >= self.config.max_steps:
+            self.error = f"达到最大步骤数 ({self.config.max_steps})"
+            self.done = True
+            yield f"\n[错误: {self.error}]\n"
 
     def reset(self, question: str):
         """重置引擎状态，准备新问题"""

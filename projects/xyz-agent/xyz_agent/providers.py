@@ -24,6 +24,18 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 
+class StreamToolCall(Exception):
+    """
+    流式响应中检测到 Function Calling 工具调用时抛出的异常。
+
+    用法:
+        raise StreamToolCall(tool_calls_list)
+    """
+    def __init__(self, tool_calls: List[Dict]):
+        self.tool_calls = tool_calls
+        super().__init__()
+
+
 # ============================================================
 # LLM Provider 接口
 # ============================================================
@@ -76,6 +88,7 @@ class OpenAIProvider(LLMProvider):
     OpenAI API Provider
 
     支持 Function Calling 原生格式，LLM 输出直接解析为工具调用。
+    支持流式输出（通过 chat_stream 生成器）。
 
     用法:
         provider = OpenAIProvider(model="gpt-4o")
@@ -86,6 +99,10 @@ class OpenAIProvider(LLMProvider):
                 "function": {"name": "get_weather", ...}
             }]
         )
+
+        # 流式用法
+        for chunk in provider.chat_stream(messages=[...]):
+            print(chunk, end="", flush=True)
     """
 
     def __init__(self, api_key: Optional[str] = None,
@@ -170,6 +187,118 @@ class OpenAIProvider(LLMProvider):
 
         except Exception as e:
             logger.error(f"OpenAI API 调用失败: {e}")
+            raise
+
+    def chat_stream(self, messages: List[Dict],
+                    tools: Optional[List[Dict]] = None,
+                    temperature: float = 0.7,
+                    max_tokens: Optional[int] = None) -> Generator:
+        """
+        流式聊天补全
+
+        以生成器方式逐 token 返回 LLM 输出文本。
+        当检测到 Function Calling 的 tool_calls 时，通过 StopIteration 携带。
+
+        Yields:
+            str — LLM 输出文本片断
+
+        Raises:
+            StopIteration(tool_calls) — 当流式响应中包含工具调用时抛出
+        """
+        import httpx
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        body = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+
+        if tools:
+            body["tools"] = tools
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+
+        collected_content = []
+        collected_tool_calls: Dict[int, Dict] = {}
+
+        try:
+            with httpx.Client(timeout=120) as client:
+                with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=body,
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line[6:].strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = data.get("choices", [])
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+
+                        # 文本内容
+                        content = delta.get("content", "")
+                        if content:
+                            collected_content.append(content)
+                            yield content
+
+                        # 工具调用（Function Calling 流式）
+                        tc_list = delta.get("tool_calls", [])
+                        for tc in tc_list:
+                            idx = tc.get("index", 0)
+                            if idx not in collected_tool_calls:
+                                collected_tool_calls[idx] = {
+                                    "id": tc.get("id", ""),
+                                    "type": tc.get("type", "function"),
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            fn = tc.get("function", {})
+                            if fn.get("name"):
+                                collected_tool_calls[idx]["function"]["name"] += fn["name"]
+                            if fn.get("arguments"):
+                                collected_tool_calls[idx]["function"]["arguments"] += fn["arguments"]
+                            if tc.get("id"):
+                                collected_tool_calls[idx]["id"] = tc["id"]
+
+            # 收集完成，整理 tool_calls
+            if collected_tool_calls:
+                tool_calls = []
+                for idx in sorted(collected_tool_calls.keys()):
+                    tc = collected_tool_calls[idx]
+                    try:
+                        arguments = json.loads(tc["function"]["arguments"])
+                    except json.JSONDecodeError:
+                        arguments = {}
+                    tool_calls.append({
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": arguments,
+                        },
+                    })
+                raise StreamToolCall(tool_calls)
+
+        except StreamToolCall:
+            raise
+        except Exception as e:
+            logger.error(f"OpenAI 流式 API 调用失败: {e}")
             raise
 
 

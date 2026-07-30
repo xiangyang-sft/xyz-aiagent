@@ -284,10 +284,26 @@ class Agent:
 
         return _llm_call
 
+    def _build_llm_stream_fn(self):
+        """构建流式 LLM 调用函数"""
+        if not self.provider or not hasattr(self.provider, "chat_stream"):
+            return None
+
+        def _llm_stream(messages, tools=None):
+            return self.provider.chat_stream(
+                messages=messages,
+                tools=tools,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+
+        return _llm_stream
+
     def _build_engine(self):
         """构建 ReAct 引擎"""
         system_prompt = self._build_system_prompt()
         llm_fn = self._build_llm_fn()
+        llm_stream_fn = self._build_llm_stream_fn()
 
         # 构建工具执行器
         def tool_executor(name: str, args: Dict) -> str:
@@ -306,6 +322,7 @@ class Agent:
             config=react_config,
             system_prompt=system_prompt,
             tools=self._tool_schemas,
+            llm_stream=llm_stream_fn,
         )
 
     def _build_system_prompt(self) -> str:
@@ -366,6 +383,33 @@ class Agent:
         self.last_output = result
         return result
 
+    def run_stream(self, question: str):
+        """
+        流式运行 Agent 处理问题
+
+        逐 token 产出文本，支持实时显示 LLM 响应。在 Function Calling 模式下，
+        工具调用也会被输出。
+
+        Yields:
+            str — 文本片断
+        """
+        if not self._initialized:
+            self.initialize()
+
+        # 检查是否是命令
+        if self.command_system and is_command(question):
+            result = self.command_system.execute(question)
+            self.last_output = result
+            yield result
+            return
+
+        collected = []
+        for chunk in self.engine.run_stream(question):
+            collected.append(chunk)
+            yield chunk
+
+        self.last_output = "".join(collected)
+
     def chat(self, message: str) -> str:
         """
         多轮对话
@@ -396,6 +440,41 @@ class Agent:
         result = self.engine.run("")
         self.last_output = result
         return result
+
+    def chat_stream(self, message: str):
+        """
+        流式多轮对话
+
+        保留上下文，逐 token 产出文本。
+
+        Yields:
+            str — 文本片断
+        """
+        if not self._initialized:
+            self.initialize()
+
+        # 检查是否是命令
+        if self.command_system and is_command(message):
+            result = self.command_system.execute(message)
+            self.last_output = result
+            yield result
+            return
+
+        # 如果是新对话，reset
+        if not self.engine:
+            self.engine.reset(message)
+        elif self.engine.done:
+            self.engine.add_user_message(message)
+            self.engine.done = False
+        else:
+            self.engine.add_user_message(message)
+
+        collected = []
+        for chunk in self.engine.run_stream(""):
+            collected.append(chunk)
+            yield chunk
+
+        self.last_output = "".join(collected)
 
     # ============================================================
     # 手动控制

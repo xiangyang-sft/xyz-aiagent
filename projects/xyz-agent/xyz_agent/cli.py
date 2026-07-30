@@ -270,10 +270,12 @@ def cmd_shell():
             continue
 
         try:
-            result = agent.chat(user_input)
-            print(f"{S.GREEN}│{S.RESET} {result}")
+            print(f"{S.GREEN}│{S.RESET} ", end="", flush=True)
+            for chunk in agent.chat_stream(user_input):
+                print(chunk, end="", flush=True)
+            print()
         except Exception as e:
-            print(f"{S.RED}✗ 错误: {e}{S.RESET}")
+            print(f"\n{S.RED}✗ 错误: {e}{S.RESET}")
 
 
 # ============================================================
@@ -654,8 +656,11 @@ def _commands_list(agent: Agent):
 # ============================================================
 
 def cmd_run(question: str):
-    """单次运行 Agent"""
-    print(_get_agent().run(question))
+    """单次运行 Agent（流式输出）"""
+    agent = _get_agent()
+    for chunk in agent.run_stream(question):
+        print(chunk, end="", flush=True)
+    print()
 
 
 def cmd_chat():
