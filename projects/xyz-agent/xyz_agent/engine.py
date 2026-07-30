@@ -602,8 +602,9 @@ class ReActEngine:
 5. 最终给出答案
 
 格式要求：
-- 工具调用：动作: 工具名\n参数: {...}
-- 最终答案：最终答案: <回答>"""
+- 工具调用：动作: 工具名\\n参数: {...}
+- 最终答案：最终答案: <回答>
+- 如果没有可用工具或不需要调用工具，直接给出最终答案"""
 
     # ============================================================
     # 响应解析（ReAct 模式）
@@ -619,6 +620,11 @@ class ReActEngine:
     _answer_pattern = re.compile(
         r"(?:最终答案|答案|Final Answer|Answer|FINAL):\s*(.*?)$",
         re.DOTALL | re.IGNORECASE,
+    )
+
+    _think_pattern = re.compile(
+        r"(?:思考|Thought|分析|让我|我需要|首先|好的)",
+        re.IGNORECASE,
     )
 
     def _parse_response(self, response: str, duration: float, tokens: int) -> Step:
@@ -657,21 +663,21 @@ class ReActEngine:
                 token_count=tokens,
             )
 
-        # 3. 有特定关键词的思考
-        think_prefixes = ["思考:", "Thought:", "分析:", "让我"]
-        for prefix in think_prefixes:
-            if prefix in response:
-                return Step(
-                    type=ActionType.THINK,
-                    content=response,
-                    duration=duration,
-                    token_count=tokens,
-                )
+        # 3. 有明确思考关键词的，标记为思考
+        #    同时检查是否包含工具调用关键词（如"调用""天气查询"等）
+        if self._think_pattern.search(response):
+            return Step(
+                type=ActionType.THINK,
+                content=response,
+                duration=duration,
+                token_count=tokens,
+            )
 
-        # 4. 默认作为思考步骤
+        # 4. 默认作为最终答案
+        #    兼容 DeepSeek 等不按严格格式输出的模型
         return Step(
-            type=ActionType.THINK,
-            content=response,
+            type=ActionType.ANSWER,
+            content=response.strip(),
             duration=duration,
             token_count=tokens,
         )
