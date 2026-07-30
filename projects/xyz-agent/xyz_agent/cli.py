@@ -100,12 +100,28 @@ class ModelEntry:
     """单个模型配置条目"""
     def __init__(self, name: str, description: str = "",
                  provider: str = "openai", base_url: Optional[str] = None,
-                 api_key_env: str = "OPENAI_API_KEY"):
+                 api_key_env: str = "OPENAI_API_KEY",
+                 api_key: Optional[str] = None):
         self.name = name
         self.description = description
         self.provider = provider
         self.base_url = base_url
         self.api_key_env = api_key_env
+        self.api_key = api_key
+
+    def resolve_api_key(self) -> str:
+        """
+        解析最终使用的 API Key
+
+        优先级: api_key_env 环境变量 > api_key 字段
+        """
+        key = os.environ.get(self.api_key_env, "")
+        if key:
+            return key
+        if self.api_key:
+            return self.api_key
+        # 最后尝试 OPENAI_API_KEY
+        return os.environ.get("OPENAI_API_KEY", "")
 
     def to_select_item(self, is_current: bool = False) -> Dict:
         label = self.description + ("  ← 当前" if is_current else "")
@@ -148,6 +164,7 @@ def _load_models_from_yaml() -> tuple:
             provider=m.get("provider", "openai"),
             base_url=m.get("base_url"),
             api_key_env=m.get("api_key_env", "OPENAI_API_KEY"),
+            api_key=m.get("api_key"),
         ))
 
     default_name = data.get("default_model", "gpt-4o")
@@ -192,12 +209,22 @@ def _get_agent() -> Agent:
         return _agent
 
     # 从配置文件读取默认模型名
-    _, default_name = _get_model_entries_and_default()
+    entries, default_name = _get_model_entries_and_default()
 
     # 环境变量优先于配置文件
     model = os.environ.get("OPENAI_MODEL", default_name)
     api_key = os.environ.get("OPENAI_API_KEY", "")
     base_url = os.environ.get("OPENAI_BASE_URL", None)
+
+    # 如果环境变量没有 Key，尝试从配置文件的 default_model 中读取 api_key
+    if not api_key:
+        for e in entries:
+            if e.name == model:
+                api_key = e.resolve_api_key()
+                # 如果从配置文件读到了 Key 但没有 base_url，也从配置取
+                if not base_url and e.base_url:
+                    base_url = e.base_url
+                break
 
     if api_key:
         _agent = Agent.from_openai(
@@ -415,16 +442,13 @@ def _model_select(agent: Agent):
         return
 
     # 从配置文件加载的模型
-    api_key = os.environ.get(entry.api_key_env, "")
-    if not api_key and entry.api_key_env != "OPENAI_API_KEY":
-        # 如果特定 Key 没设置，尝试用 OPENAI_API_KEY
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key = entry.resolve_api_key()
 
     if not api_key:
-        print(f"{S.YELLOW}⚠ 未找到 {entry.api_key_env} 环境变量，可能无法正常使用{S.RESET}")
+        print(f"{S.YELLOW}⚠ 未找到 {entry.api_key_env} 环境变量和 api_key 配置，可能无法正常使用{S.RESET}")
 
     agent.provider = OpenAIProvider(
-        api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
+        api_key=api_key,
         model=entry.name,
         base_url=entry.base_url,
     )

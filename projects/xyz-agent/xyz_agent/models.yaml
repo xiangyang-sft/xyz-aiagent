@@ -1,6 +1,9 @@
 # xyz-agent 模型配置文件
 # 支持所有兼容 OpenAI API 格式的大模型服务
-# 每个模型条目可指定：名称、描述、provider、base_url、api_key_env
+# 每个模型条目可指定：名称、描述、provider、base_url、api_key、api_key_env
+# api_key: 直接填写 Key（不推荐提交到 Git）
+# api_key_env: 环境变量名（推荐），不存在时回退到 api_key 字段
+# 优先级: api_key_env 环境变量 > api_key 字段
 # 启动时自动加载，/model 交互式选择器可浏览和切换
 
 models:
@@ -48,7 +51,7 @@ models:
     base_url: "https://api.deepseek.com/v1"
     api_key_env: "DEEPSEEK_API_KEY"
 
-  # ---- Anthropic（通过 OpenRouter 兼容 API）----
+  # ---- Anthropic ----
   - name: "claude-sonnet-4"
     description: "Claude Sonnet 4"
     provider: "anthropic"
