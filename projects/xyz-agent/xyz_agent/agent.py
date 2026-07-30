@@ -127,18 +127,53 @@ class Agent:
     @classmethod
     def from_openai(cls, api_key: Optional[str] = None,
                     model: str = "gpt-4o",
+                    base_url: Optional[str] = None,
                     **kwargs) -> "Agent":
-        """从 OpenAI API 创建 Agent"""
-        provider = OpenAIProvider(api_key=api_key, model=model)
+        """从 OpenAI API 创建 Agent
+
+        参数:
+          api_key:   API Key（默认读取 OPENAI_API_KEY 环境变量）
+          model:     模型名称（默认 gpt-4o）
+          base_url:  API 地址（默认读取 OPENAI_BASE_URL 环境变量，否则使用 OpenAI 官方地址）
+
+        示例:
+            # 方式一：环境变量（推荐）
+            # export OPENAI_API_KEY="sk-xxx"
+            # export OPENAI_BASE_URL="https://api.deepseek.com/v1"
+            agent = Agent.from_openai(model="deepseek-v4-flash")
+
+            # 方式二：代码传参
+            agent = Agent.from_openai(
+                api_key="sk-xxx",
+                model="deepseek-v4-flash",
+                base_url="https://api.deepseek.com/v1",
+            )
+        """
+        resolved_base = base_url or os.environ.get("OPENAI_BASE_URL", None)
+        provider = OpenAIProvider(
+            api_key=api_key, model=model,
+            base_url=resolved_base,
+        )
         config = AgentConfig(model=model, **kwargs)
         return cls(llm_provider=provider, config=config)
 
     @classmethod
     def from_openrouter(cls, api_key: Optional[str] = None,
                         model: str = "openai/gpt-4o",
+                        base_url: Optional[str] = None,
                         **kwargs) -> "Agent":
-        """从 OpenRouter 创建 Agent"""
-        provider = OpenRouterProvider(api_key=api_key, model=model)
+        """从 OpenRouter 创建 Agent
+
+        参数:
+          api_key:   API Key（默认读取 OPENROUTER_API_KEY 环境变量）
+          model:     模型名称
+          base_url:  API 地址（默认 OpenRouter 官方地址）
+        """
+        resolved_base = base_url or "https://openrouter.ai/api/v1"
+        provider = OpenRouterProvider(
+            api_key=api_key, model=model,
+            base_url=resolved_base,
+        )
         config = AgentConfig(model=model, **kwargs)
         return cls(llm_provider=provider, config=config)
 

@@ -125,14 +125,16 @@ export QWEN_API_KEY="sk-xxx"            # 通义千问
 
 **API Key 与环境变量对照表：**
 
-| 服务 | 环境变量 | 获取地址 |
-|:-----|:---------|:---------|
-| **OpenAI** | `OPENAI_API_KEY` | https://platform.openai.com/api-keys |
-| **OpenRouter** | `OPENROUTER_API_KEY` | https://openrouter.ai/keys |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | https://platform.deepseek.com/ |
-| **Anthropic** | `ANTHROPIC_API_KEY` | https://console.anthropic.com/ |
-| **Google Gemini** | `GOOGLE_API_KEY` | https://aistudio.google.com/ |
-| **通义千问** | `QWEN_API_KEY` | https://dashscope.aliyun.com/ |
+| 服务 | 环境变量 | API 地址 | 获取地址 |
+|:-----|:---------|:---------|:---------|
+| **OpenAI** | `OPENAI_API_KEY` | `https://api.openai.com/v1` | https://platform.openai.com/api-keys |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/v1` | https://platform.deepseek.com/ |
+| **OpenRouter** | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | https://openrouter.ai/keys |
+| **Anthropic** | `ANTHROPIC_API_KEY` | — | https://console.anthropic.com/ |
+| **Google Gemini** | `GOOGLE_API_KEY` | `https://generativelanguage.googleapis.com/v1beta/openai/` | https://aistudio.google.com/ |
+| **通义千问** | `QWEN_API_KEY` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | https://dashscope.aliyun.com/ |
+
+> 💡 **DeepSeek 兼容 OpenAI API 格式**，使用 `OpenAIProvider` + 设置 `base_url` 即可连接，无需额外 Provider。已验证 `deepseek-v4-flash` 模型（Function Calling、多轮对话、ReAct 模式均正常工作）。
 
 ### 3.3 CLI 中交互式切换模型
 
@@ -527,10 +529,10 @@ from xyz_agent.providers import OpenAIProvider
 
 agent = Agent.from_openai(api_key="sk-xxx", model="gpt-4o")
 
-# 运行时切换为 DeepSeek
+# 运行时切换为 DeepSeek（已验证 deepseek-v4-flash）
 agent.provider = OpenAIProvider(
     api_key="sk-xxx",
-    model="deepseek/deepseek-chat",
+    model="deepseek-v4-flash",
     base_url="https://api.deepseek.com/v1",
 )
 agent.rebuild_engine()

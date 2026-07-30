@@ -9,10 +9,43 @@
 ```bash
 cd projects/xyz-agent
 pip install -e .
-pip install pyyaml
+pip install pyyaml httpx
 
-# 启动交互式 Shell
+# 方式一：使用环境变量启动（自动读取 OPENAI_API_KEY）
+export OPENAI_API_KEY="sk-xxx"
 xyz-agent chat
+
+# 方式二：启动后交互式切换模型（/model 命令）
+# 支持 DeepSeek / OpenRouter / Anthropic / Gemini 等所有兼容 OpenAI API 的服务
+```
+
+### 使用 DeepSeek（已验证）
+
+```bash
+# 设置环境变量
+export DEEPSEEK_API_KEY="sk-xxx"
+export OPENAI_API_KEY="$DEEPSEEK_API_KEY"  # 或用 SDK 方式
+
+# 启动后输入 /model 选择 DeepSeek 模型
+xyz-agent chat
+```
+
+```python
+from xyz_agent import Agent
+from xyz_agent.providers import OpenAIProvider
+
+# 直接使用 DeepSeek（已验证 deepseek-v4-flash）
+agent = Agent(
+    llm_provider=OpenAIProvider(
+        api_key="sk-xxx",
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com/v1",
+    ),
+)
+agent.initialize()
+result = agent.run("现在几点了？帮我计算 1234 * 5678 等于多少？")
+print(result)
+# ✅ Agent 自动调用工具、Function Calling 和多轮对话均正常
 ```
 
 [📖 完整用户手册 →](USER_GUIDE.md)

@@ -1,0 +1,110 @@
+# xyz-agent 模型配置文件
+# 支持所有兼容 OpenAI API 格式的大模型服务
+# 每个模型条目可指定：名称、描述、provider、base_url、api_key_env
+# 启动时自动加载，/model 交互式选择器可浏览和切换
+
+models:
+  # ---- OpenAI ----
+  - name: "gpt-4o"
+    description: "OpenAI 旗舰模型"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+
+  - name: "gpt-4o-mini"
+    description: "OpenAI 轻量版"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+
+  - name: "gpt-4-turbo"
+    description: "OpenAI GPT-4 Turbo"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+
+  - name: "gpt-3.5-turbo"
+    description: "OpenAI 低成本模型"
+    provider: "openai"
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+
+  # ---- DeepSeek ----
+  - name: "deepseek-v4-flash"
+    description: "DeepSeek V4 Flash（已验证 FC / ReAct / 多轮对话）"
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+
+  - name: "deepseek/deepseek-chat"
+    description: "DeepSeek V3/Chat"
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+
+  - name: "deepseek/deepseek-reasoner"
+    description: "DeepSeek R1 推理模型"
+    provider: "deepseek"
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+
+  # ---- Anthropic（通过 OpenRouter 兼容 API）----
+  - name: "claude-sonnet-4"
+    description: "Claude Sonnet 4"
+    provider: "anthropic"
+    base_url: "https://api.anthropic.com/v1"
+    api_key_env: "ANTHROPIC_API_KEY"
+
+  - name: "claude-3.5-sonnet"
+    description: "Claude 3.5 Sonnet"
+    provider: "anthropic"
+    base_url: "https://api.anthropic.com/v1"
+    api_key_env: "ANTHROPIC_API_KEY"
+
+  - name: "claude-3-haiku"
+    description: "Claude 3 Haiku"
+    provider: "anthropic"
+    base_url: "https://api.anthropic.com/v1"
+    api_key_env: "ANTHROPIC_API_KEY"
+
+  # ---- Google Gemini（兼容 OpenAI 格式）----
+  - name: "gemini/gemini-2.0-flash"
+    description: "Gemini 2.0 Flash"
+    provider: "gemini"
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key_env: "GOOGLE_API_KEY"
+
+  - name: "gemini/gemini-2.0-pro"
+    description: "Gemini 2.0 Pro"
+    provider: "gemini"
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key_env: "GOOGLE_API_KEY"
+
+  # ---- 通义千问 ----
+  - name: "qwen/qwen-2.5-72b"
+    description: "通义千问 Qwen 2.5 72B"
+    provider: "qwen"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "QWEN_API_KEY"
+
+  # ---- OpenRouter（路由到 Claude / Llama 等）----
+  - name: "openai/gpt-4o"
+    description: "OpenRouter: GPT-4o"
+    provider: "openrouter"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+
+  - name: "anthropic/claude-sonnet-4"
+    description: "OpenRouter: Claude Sonnet 4"
+    provider: "openrouter"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+
+  - name: "meta-llama/llama-3.3-70b"
+    description: "OpenRouter: Llama 3.3 70B"
+    provider: "openrouter"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+
+# ---- 默认模型（启动时使用）----
+default_model: "gpt-4o"

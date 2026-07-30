@@ -4,11 +4,13 @@ xyz_agent.cli — 命令行接口
 
 将 slash 命令委托给 command.py 的 CommandSystem 处理。
 保留 CLI 独有功能：/model /skill /mcp 交互式选择器、/trace /stats 调试。
+模型配置支持从 models.yaml 配置文件加载。
 """
 
 import sys
 import os
 import shlex
+import yaml
 import logging
 from typing import Dict, List, Optional
 
@@ -33,7 +35,7 @@ if __name__ == "__main__" and __package__ is None:
 from . import __version__
 from .agent import Agent, AgentConfig
 from .providers import OpenAIProvider, MockProvider
-from .cli_selector import interactive_select, Style
+from .cli_selector import interactive_select, Style, input_text, confirm
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 S = Style
+
 
 def _color(text: str, color: str) -> str:
     if os.name == "nt":
@@ -61,6 +64,121 @@ def _print_banner():
 
 
 # ============================================================
+# 模型配置加载
+# ============================================================
+
+_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "models.yaml")
+
+# 硬编码模型列表（兼容旧版本，无 models.yaml 时使用）
+_FALLBACK_MODELS = [
+    # OpenAI
+    ("gpt-4o",             "OpenAI 旗舰模型",           "openai"),
+    ("gpt-4o-mini",        "OpenAI 轻量版",             "openai"),
+    ("gpt-4-turbo",        "OpenAI GPT-4 Turbo",        "openai"),
+    ("gpt-3.5-turbo",      "OpenAI 低成本",             "openai"),
+    # DeepSeek
+    ("deepseek-v4-flash",  "DeepSeek V4 Flash（已验证）","deepseek"),
+    ("deepseek/deepseek-chat",     "DeepSeek V3/Chat",  "deepseek"),
+    ("deepseek/deepseek-reasoner", "DeepSeek R1 推理",  "deepseek"),
+    # OpenRouter
+    ("openai/gpt-4o",              "OpenRouter: GPT-4o",  "openrouter"),
+    ("anthropic/claude-sonnet-4",  "OpenRouter: Sonnet 4","openrouter"),
+    ("meta-llama/llama-3.3-70b",   "OpenRouter: Llama 3.3 70B", "openrouter"),
+]
+
+_FALLBACK_PROV_CFG = {
+    "openai":    {"k": "OPENAI_API_KEY",     "u": None},
+    "deepseek":  {"k": "DEEPSEEK_API_KEY",   "u": "https://api.deepseek.com/v1"},
+    "openrouter":{"k": "OPENROUTER_API_KEY", "u": "https://openrouter.ai/api/v1"},
+    "anthropic": {"k": "ANTHROPIC_API_KEY",  "u": "https://api.anthropic.com/v1"},
+    "gemini":    {"k": "GOOGLE_API_KEY",     "u": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+    "qwen":      {"k": "QWEN_API_KEY",       "u": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+}
+
+
+class ModelEntry:
+    """单个模型配置条目"""
+    def __init__(self, name: str, description: str = "",
+                 provider: str = "openai", base_url: Optional[str] = None,
+                 api_key_env: str = "OPENAI_API_KEY"):
+        self.name = name
+        self.description = description
+        self.provider = provider
+        self.base_url = base_url
+        self.api_key_env = api_key_env
+
+    def to_select_item(self, is_current: bool = False) -> Dict:
+        label = self.description + ("  ← 当前" if is_current else "")
+        return {
+            "name": self.name,
+            "description": label,
+            "tags": [self.provider],
+            "_entry": self,
+        }
+
+
+def _load_models_from_yaml() -> tuple:
+    """
+    从 models.yaml 加载模型配置
+
+    返回:
+      (model_entries, default_model_name)
+    """
+    if not os.path.isfile(_MODEL_CONFIG_PATH):
+        return [], "gpt-4o"
+
+    try:
+        with open(_MODEL_CONFIG_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception:
+        logger.warning(f"模型配置文件 {_MODEL_CONFIG_PATH} 解析失败")
+        return [], "gpt-4o"
+
+    if not data or "models" not in data:
+        return [], "gpt-4o"
+
+    entries = []
+    for m in data["models"]:
+        name = m.get("name", "")
+        if not name:
+            continue
+        entries.append(ModelEntry(
+            name=name,
+            description=m.get("description", ""),
+            provider=m.get("provider", "openai"),
+            base_url=m.get("base_url"),
+            api_key_env=m.get("api_key_env", "OPENAI_API_KEY"),
+        ))
+
+    default_name = data.get("default_model", "gpt-4o")
+    return entries, default_name
+
+
+def _get_model_entries_and_default() -> tuple:
+    """
+    获取完整模型列表和默认模型名
+
+    策略：优先加载 models.yaml，如无则使用硬编码 fallback
+    """
+    yaml_entries, default_name = _load_models_from_yaml()
+    if yaml_entries:
+        return yaml_entries, default_name
+
+    # Fallback：从硬编码列表构建
+    entries = []
+    for name, desc, provider in _FALLBACK_MODELS:
+        cfg = _FALLBACK_PROV_CFG.get(provider, {})
+        entries.append(ModelEntry(
+            name=name,
+            description=desc,
+            provider=provider,
+            base_url=cfg.get("u"),
+            api_key_env=cfg.get("k", "OPENAI_API_KEY"),
+        ))
+    return entries, "gpt-4o"
+
+
+# ============================================================
 # 全局 Agent 实例
 # ============================================================
 
@@ -68,14 +186,25 @@ _agent: Optional[Agent] = None
 
 
 def _get_agent() -> Agent:
-    """获取或创建全局 Agent 实例"""
+    """获取或创建全局 Agent 实例（支持环境变量和配置文件）"""
     global _agent
     if _agent is not None:
         return _agent
 
+    # 从配置文件读取默认模型名
+    _, default_name = _get_model_entries_and_default()
+
+    # 环境变量优先于配置文件
+    model = os.environ.get("OPENAI_MODEL", default_name)
     api_key = os.environ.get("OPENAI_API_KEY", "")
+    base_url = os.environ.get("OPENAI_BASE_URL", None)
+
     if api_key:
-        _agent = Agent.from_openai(api_key=api_key)
+        _agent = Agent.from_openai(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+        )
         _agent.config.enable_skills = True
         _agent.config.enable_commands = True
         _agent.config.auto_load_skills = True
@@ -84,6 +213,7 @@ def _get_agent() -> Agent:
             llm_provider=MockProvider(),
             config=AgentConfig(
                 name="cli-agent",
+                model=model,
                 enable_skills=True,
                 enable_commands=True,
                 auto_load_skills=True,
@@ -131,9 +261,7 @@ def cmd_shell():
         if not user_input:
             continue
 
-        if user_input in (
-            "/exit", "/quit", ":q", "exit", "quit"
-        ):
+        if user_input in ("/exit", "/quit", ":q", "exit", "quit"):
             print(f"{S.YELLOW}再见！👋{S.RESET}")
             break
 
@@ -177,7 +305,7 @@ def _handle_slash(raw: str, agent: Agent):
         print(f"{S.GREEN}✓ Agent 已重置{S.RESET}")
         return
 
-    # 交互式选择命令（CLI 独有）
+    # 交互式选择命令
     if cmd == "model":
         _model_select(agent)
         return
@@ -231,64 +359,22 @@ def _handle_slash(raw: str, agent: Agent):
 
 
 # ============================================================
-# 模型选择
+# 模型选择（从 models.yaml 加载）
 # ============================================================
 
-_MODELS = [
-    # OpenAI
-    ("gpt-4o",             "OpenAI 旗舰模型",           "openai"),
-    ("gpt-4o-mini",        "OpenAI 轻量版",             "openai"),
-    ("gpt-4-turbo",        "OpenAI GPT-4 Turbo",        "openai"),
-    ("gpt-3.5-turbo",      "OpenAI 低成本",             "openai"),
-    # Anthropic
-    ("claude-sonnet-4",    "Claude Sonnet 4",           "anthropic"),
-    ("claude-3.5-sonnet",  "Claude 3.5 Sonnet",         "anthropic"),
-    ("claude-3-haiku",     "Claude 3 Haiku",            "anthropic"),
-    # DeepSeek
-    ("deepseek/deepseek-chat",     "DeepSeek V3/Chat",  "deepseek"),
-    ("deepseek/deepseek-reasoner", "DeepSeek R1 推理",  "deepseek"),
-    # Gemini
-    ("gemini/gemini-2.0-flash", "Gemini 2.0 Flash",     "gemini"),
-    ("gemini/gemini-2.0-pro",   "Gemini 2.0 Pro",       "gemini"),
-    # 通义千问
-    ("qwen/qwen-2.5-72b",  "通义千问 Qwen 2.5 72B",    "qwen"),
-    # OpenRouter
-    ("openai/gpt-4o",              "OpenRouter: GPT-4o",  "openrouter"),
-    ("anthropic/claude-sonnet-4",  "OpenRouter: Sonnet 4","openrouter"),
-    ("meta-llama/llama-3.3-70b",   "OpenRouter: Llama 3.3 70B", "openrouter"),
-]
-
-_PROV_CFG = {
-    "openai":    {"k": "OPENAI_API_KEY",     "u": None},
-    "deepseek":  {"k": "DEEPSEEK_API_KEY",   "u": "https://api.deepseek.com/v1"},
-    "openrouter":{"k": "OPENROUTER_API_KEY", "u": "https://openrouter.ai/api/v1"},
-    "anthropic": {"k": "ANTHROPIC_API_KEY",  "u": "https://api.anthropic.com/v1"},
-    "gemini":    {"k": "GOOGLE_API_KEY",     "u": "https://generativelanguage.googleapis.com/v1beta/openai/"},
-    "qwen":      {"k": "QWEN_API_KEY",       "u": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
-}
-
-
 def _model_select(agent: Agent):
-    """交互式选择模型"""
+    """交互式选择模型（从 models.yaml + fallback 加载列表）"""
     cur = agent.config.model
-    items = []
+    entries, _ = _get_model_entries_and_default()
 
-    for model_name, desc, provider in _MODELS:
-        label = desc + ("  ← 当前" if model_name == cur else "")
-        items.append({
-            "name": model_name,
-            "description": label,
-            "tags": [provider],
-            "_m": model_name,
-            "_p": provider,
-        })
+    items = [e.to_select_item(is_current=(e.name == cur)) for e in entries]
 
+    # 添加"自定义模型"选项
     items.append({
         "name": "✏️  自定义模型",
-        "description": "手动输入模型名称",
+        "description": "手动输入模型名称和 API 地址",
         "tags": ["custom"],
-        "_m": None,
-        "_p": None,
+        "_entry": None,
     })
 
     sel = interactive_select(
@@ -299,26 +385,55 @@ def _model_select(agent: Agent):
     if sel is None:
         return
 
-    model_name = sel["_m"]
-    provider_name = sel["_p"]
+    entry = sel["_entry"]
 
-    if model_name is None:
-        from .cli_selector import input_text
+    if entry is None:
+        # 自定义模型
         model_name = input_text("输入模型名称", default=cur)
         if not model_name:
             print(f"{S.YELLOW}已取消{S.RESET}")
             return
-        provider_name = "openai"
+        base_url = input_text(
+            "API 地址",
+            default="https://api.openai.com/v1",
+        )
+        api_key_env = input_text(
+            "API Key 环境变量名",
+            default="OPENAI_API_KEY",
+        )
+        api_key = os.environ.get(api_key_env, "")
+        if not api_key:
+            print(f"{S.YELLOW}⚠ 环境变量 {api_key_env} 未设置{S.RESET}")
+        agent.provider = OpenAIProvider(
+            api_key=api_key, model=model_name, base_url=base_url or None,
+        )
+        agent.config.model = model_name
+        agent.rebuild_engine()
+        print(f"{S.GREEN}✓{S.RESET} 模型已切换为 {S.BOLD}{model_name}{S.RESET}")
+        return
 
-    cfg = _PROV_CFG.get(provider_name, {"k": "OPENAI_API_KEY", "u": None})
+    # 从配置文件加载的模型
+    api_key = os.environ.get(entry.api_key_env, "")
+    if not api_key and entry.api_key_env != "OPENAI_API_KEY":
+        # 如果特定 Key 没设置，尝试用 OPENAI_API_KEY
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+
+    if not api_key:
+        print(f"{S.YELLOW}⚠ 未找到 {entry.api_key_env} 环境变量，可能无法正常使用{S.RESET}")
+
     agent.provider = OpenAIProvider(
-        api_key=os.environ.get(cfg["k"], ""),
-        model=model_name,
-        base_url=cfg["u"],
+        api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
+        model=entry.name,
+        base_url=entry.base_url,
     )
-    agent.config.model = model_name
+    agent.config.model = entry.name
     agent.rebuild_engine()
-    print(f"{S.GREEN}✓{S.RESET} 模型已切换为 {S.BOLD}{model_name}{S.RESET} ({provider_name})")
+    print(
+        f"{S.GREEN}✓{S.RESET} 模型已切换为 {S.BOLD}{entry.name}{S.RESET} "
+        f"({entry.provider})"
+    )
+    if entry.base_url:
+        print(f"  {S.DIM}API: {entry.base_url}{S.RESET}")
 
 
 # ============================================================
@@ -355,7 +470,6 @@ def _skill_select(agent: Agent):
     if sel is None:
         return
 
-    # 加载选中 Skill 的 system prompt（重建引擎）
     agent.rebuild_engine()
     skill = sel["_raw"]
     parts = [f"{S.GREEN}✓{S.RESET} 已加载 {S.BOLD}{skill.name}{S.RESET} v{skill.version}"]
@@ -390,8 +504,6 @@ _MCP_TPL = [
 
 def _mcp_select(agent: Agent):
     """交互式 MCP 管理"""
-    from .cli_selector import confirm, input_text
-
     acts = [
         {"name": "📋  查看已连接的服务器", "description": "列出 MCP 服务器",
          "_a": "list"},
@@ -440,10 +552,7 @@ def _mcp_list(agent: Agent):
     print(f"{S.CYAN}MCP 服务器 ({len(servers)}):{S.RESET}")
     for name in servers:
         server = agent.mcp_manager.get_server(name)
-        if server and server.is_connected:
-            status = f"{S.GREEN}✅{S.RESET}"
-        else:
-            status = f"{S.RED}❌{S.RESET}"
+        status = f"{S.GREEN}✅{S.RESET}" if (server and server.is_connected) else f"{S.RED}❌{S.RESET}"
         tool_count = len(server.tools) if server else 0
         print(f"  {status} {S.BOLD}{name}{S.RESET} ({tool_count} 个工具)")
 
@@ -475,7 +584,6 @@ def _mcp_connect_template(agent: Agent):
 
 def _mcp_connect_custom(agent: Agent):
     """手动输入连接 MCP"""
-    from .cli_selector import input_text
     name = input_text("服务器名称")
     cmd = input_text("命令", default="npx")
     args_str = input_text(
@@ -488,7 +596,6 @@ def _mcp_connect_custom(agent: Agent):
 
 def _do_mcp_connect(agent: Agent, name: str, cmd: str, args: List[str]):
     """执行 MCP 连接"""
-    from .cli_selector import confirm
     try:
         agent.setup_mcp(name, cmd, args)
         print(f"{S.GREEN}✓{S.RESET} MCP {S.BOLD}{name}{S.RESET} 已连接")

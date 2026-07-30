@@ -183,11 +183,12 @@ class OpenRouterProvider(OpenAIProvider):
 
     def __init__(self, api_key: Optional[str] = None,
                  model: str = "openai/gpt-4o",
+                 base_url: Optional[str] = None,
                  **kwargs):
         super().__init__(
             api_key=api_key or os.environ.get("OPENROUTER_API_KEY", ""),
             model=model,
-            base_url="https://openrouter.ai/api/v1",
+            base_url=base_url or "https://openrouter.ai/api/v1",
             **kwargs,
         )
 
