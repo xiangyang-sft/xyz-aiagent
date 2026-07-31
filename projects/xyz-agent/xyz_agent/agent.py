@@ -36,6 +36,10 @@ from .mcp_client import MCPManager
 from .command import CommandSystem, get_default_command_system, is_command
 from .loader import ExtensionLoader, get_default_loader
 from .system_tools import ensure_system_tools
+from .skill_tools import (
+    register_skill_tools,
+    set_active_skill_manager,
+)
 from .providers import (
     LLMProvider, OpenAIProvider, OpenRouterProvider,
     build_tool_schemas,
@@ -194,6 +198,10 @@ class Agent:
         # 1.5 注册内置系统工具集（file/terminal），幂等
         ensure_system_tools()
 
+        # 1.6 注册 skill 按需加载工具（skill_list / skill_view），并挂载当前 SkillManager
+        register_skill_tools(self.tool_registry)
+        set_active_skill_manager(self.skill_manager)
+
         # 2. 自动加载 Skills
         if self.config.enable_skills and self.config.auto_load_skills:
             self._load_default_skills()
@@ -333,20 +341,20 @@ class Agent:
         """构建完整的系统提示词"""
         parts = [self.config.system_prompt or self._default_system_prompt()]
 
-        # 注入 Skill 摘要（只注入名称和描述，不注入完整内容）
+        # 注入 Skill 目录（所有 skill 的「名字 + 描述」，不注入全部详情以控制 token）
         if self.skill_manager is not None:
             skills = self.skill_manager.list_skills()
             if skills:
                 parts.append("\n\n[已加载的 Skill]")
                 for s in skills:
                     tags_str = f" [{', '.join(s.tags)}]" if s.tags else ""
-                    parts.append(f"  - {s.name}{tags_str}: {s.description[:100]}")
-                # 只在 skill 数量少时才注入完整 system prompt（避免超出上下文）
-                if len(skills) <= 5:
-                    full_prompts = self.skill_manager.get_system_prompts()
-                    if full_prompts:
-                        parts.append("\n[Skill 详情]")
-                        parts.extend(full_prompts)
+                    parts.append(f"  - {s.name}{tags_str}: {s.description}")
+                # 指引 LLM 按需加载 skill 详情（对齐 Hermes：目录 + skill_view 按需加载）
+                parts.append(
+                    "\nSkill 详情按需加载：当用户任务命中上述某个 skill 时，"
+                    "调用 skill_view(name) 加载该 skill 的完整说明后再执行；"
+                    "不确定时先调用 skill_list() 查看所有可用 skill。"
+                )
 
         # 工具列表
         tools = self.tool_registry.list_tools()

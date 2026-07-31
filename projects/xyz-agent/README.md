@@ -99,6 +99,26 @@ result = agent.run("帮我看看当前目录下有哪些文件，并读取 READM
 
 不再注册"占位假工具"——声明了但无法执行的工具会明确告警，避免 LLM 误用。
 
+### Skill 按需加载（skill_view / skill_list）
+
+当加载大量 skill 时，把所有详情塞进主上下文会撑爆 token。参考 Hermes 的
+「先列目录，LLM 点菜，再上菜」机制：
+
+- 主 system prompt **永远只注入所有 skill 的目录**（名字 + 一句话描述），
+  无论 skill 数量多少
+- 注册两个内置工具：`skill_list()` 列出目录、`skill_view(name)` 加载指定
+  skill 的**完整详情**
+- LLM 根据目录判断用户任务命中哪个 skill → 调用 `skill_view` 主动加载 →
+  按加载到的流程执行
+
+```python
+# 6 个 skill 时：主上下文只有目录，详情按需加载
+result = agent.run("帮我算 23*45+67")
+# 调用链：skill_view("calculator") → calculator_calc("23 * 45 + 67") → 1102
+```
+
+这样 skill 数量不再有硬编码上限，token 成本是 O(目录) 而非 O(全部详情)。
+
 ## 最小示例
 
 ```python
@@ -119,6 +139,7 @@ xyz-agent/
 │   ├── providers.py     # LLM 提供者
 │   ├── tool.py          # 工具注册与执行
 │   ├── system_tools.py  # 内置工具集 file/terminal
+│   ├── skill_tools.py   # skill 按需加载 (skill_view/skill_list)
 │   ├── skill.py         # Skill 加载管理
 │   ├── command.py       # 内置命令系统
 │   ├── memory.py        # 长期/RAG 记忆
@@ -127,9 +148,13 @@ xyz-agent/
 │   ├── orchestrator.py  # 多 Agent 编排
 │   ├── cli.py           # 命令行入口
 │   └── cli_selector.py  # 交互式选择器
-├── skills/              # 示例 Skill
+├── skills/              # 示例 Skill（6 个）
 │   ├── weather/         # 自带真实实现（scripts/impl.py）
-│   └── devops/          # 引用内置系统工具
+│   ├── calculator/      # 自带安全计算实现（scripts/impl.py）
+│   ├── translator/      # 自带词典式实现（scripts/impl.py）
+│   ├── devops/          # 引用内置系统工具
+│   ├── git-helper/      # 引用内置 run_command
+│   └── notes/           # 引用内置 file 工具
 ├── setup.py
 ├── USER_GUIDE.md        # 完整用户手册
 └── README.md

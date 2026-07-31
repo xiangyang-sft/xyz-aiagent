@@ -33,6 +33,12 @@ from .system_tools import (
     list_dir,
     run_command,
 )
+from .skill_tools import (
+    register_skill_tools,
+    skill_list,
+    skill_view,
+    set_active_skill_manager,
+)
 from .mcp_client import MCPManager
 from .command import CommandSystem, is_command
 from .providers import (
