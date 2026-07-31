@@ -352,6 +352,10 @@ def _handle_slash(raw: str, agent: Agent):
         print(f"{S.GREEN}✓ 示例 Skill 已生成: {path}{S.RESET}")
         return
 
+    if cmd == "skill" and args:
+        _skill_load(agent, args[0])
+        return
+
     if cmd == "mcp" and not args:
         _mcp_select(agent)
         return
@@ -466,17 +470,8 @@ def _model_select(agent: Agent):
 # Skill 选择
 # ============================================================
 
-def _skill_select(agent: Agent):
-    """交互式选择 Skill"""
-    if agent.skill_manager is None:
-        print(f"{S.YELLOW}✗ Skill 系统未启用{S.RESET}")
-        return
-
-    skills = agent.skill_manager.list_skills()
-    if not skills:
-        print(f"{S.YELLOW}暂无可选的 Skill{S.RESET}")
-        return
-
+def _build_skill_items(skills):
+    """构造技能列表项（名称/描述/版本/工具数/分类）"""
     items = []
     for s in sorted(skills, key=lambda x: (x.tags[0] if x.tags else "~", x.name)):
         desc = f"{s.description[:50] or '暂无描述'} v{s.version}"
@@ -487,10 +482,43 @@ def _skill_select(agent: Agent):
             "tags": [tag],
             "_raw": s,
         })
+    return items
 
+
+def _print_skill_list(items):
+    """回显当前已加载的技能列表"""
+    print(f"\n{S.BOLD}📦 已加载 Skill ({len(items)} 个){S.RESET}")
+    for it in items:
+        s = it["_raw"]
+        tool_str = f"{len(s.tools)} 个工具" if s.tools else "无工具"
+        print(
+            f"  {S.GREEN}•{S.RESET} {S.BOLD}{s.name}{S.RESET} "
+            f"v{s.version}  {S.DIM}{s.description[:50] or '暂无描述'}{S.RESET}"
+        )
+        print(f"    {S.CYAN}🔧{S.RESET} {tool_str}"
+              f"  {S.DIM}分类:{it['tags'][0]}{S.RESET}")
+
+
+def _skill_select(agent: Agent):
+    """回显当前 skills 列表并进入交互式选择加载"""
+    if agent.skill_manager is None:
+        print(f"{S.YELLOW}✗ Skill 系统未启用{S.RESET}")
+        return
+
+    skills = agent.skill_manager.list_skills()
+    if not skills:
+        print(f"{S.YELLOW}暂无可选的 Skill{S.RESET}")
+        return
+
+    items = _build_skill_items(skills)
+    # 自动回显当前 skills
+    _print_skill_list(items)
+
+    # 进入交互选择器（非 TTY 下选择器会自动退化为仅打印，此处已回显过列表）
+    print(f"\n{S.DIM}↑↓ 选择加载，/ 过滤，ESC 取消，或输入 /skill <名称> 直接加载{S.RESET}")
     sel = interactive_select(
         items,
-        title=f"📦 已加载 Skill ({len(items)} 个)",
+        title=f"📦 选择要加载的 Skill ({len(items)} 个)",
         prompt="↑↓ 选择  |  回车加载  |  / 过滤  |  ESC 取消",
     )
     if sel is None:
@@ -498,6 +526,36 @@ def _skill_select(agent: Agent):
 
     agent.rebuild_engine()
     skill = sel["_raw"]
+    _print_skill_loaded(skill)
+
+
+def _skill_load(agent: Agent, name: str):
+    """通过名称直接加载指定 skill（模糊匹配）"""
+    if agent.skill_manager is None:
+        print(f"{S.YELLOW}✗ Skill 系统未启用{S.RESET}")
+        return
+
+    skills = agent.skill_manager.list_skills()
+    name = name.strip().lower()
+    # 先精确匹配，再前缀/包含匹配
+    match = next((s for s in skills if s.name.lower() == name), None)
+    if match is None:
+        match = next((s for s in skills if s.name.lower().startswith(name)), None)
+    if match is None:
+        match = next((s for s in skills if name in s.name.lower()), None)
+
+    if match is None:
+        names = ", ".join(sorted(s.name for s in skills)) or "（无）"
+        print(f"{S.YELLOW}✗ 未找到 Skill: {S.RESET}{name}")
+        print(f"  {S.DIM}当前可用: {names}{S.RESET}")
+        return
+
+    agent.rebuild_engine()
+    _print_skill_loaded(match)
+
+
+def _print_skill_loaded(skill):
+    """打印某个 skill 已加载的详情"""
     parts = [f"{S.GREEN}✓{S.RESET} 已加载 {S.BOLD}{skill.name}{S.RESET} v{skill.version}"]
     if skill.description:
         parts.append(f"   {S.DIM}{skill.description}{S.RESET}")

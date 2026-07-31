@@ -191,6 +191,16 @@ def interactive_select(
         print(f"{Style.YELLOW}(列表为空){Style.RESET}")
         return None
 
+    # 非 TTY 环境（管道/重定向/远程 shell）：退化为打印列表，避免 termios 崩溃
+    if not sys.stdin.isatty():
+        if title:
+            print(f"\n {_color(title, Style.BOLD)}")
+        for item in items:
+            print(f"  {_format_item(item)}")
+        if prompt:
+            print(f" {_color(prompt, Style.DIM)}")
+        return None
+
     # 自动获取终端宽度
     try:
         width = os.get_terminal_size().columns
