@@ -445,9 +445,15 @@ class Agent:
             self.last_output = result
             return result
 
-        # 如果是新对话，reset
-        if not self.engine:
-            self.engine.reset(message)
+        # 首次对话（消息为空或无 system）时 reset 以注入 system prompt；
+        # 否则追加用户消息继续多轮对话
+        if (not self.engine or
+                not self.engine.messages or
+                all(m.get("role") == "system" for m in self.engine.messages)):
+            if self.engine is None:
+                self.initialize()
+            if self.engine is not None:
+                self.engine.reset(message)
         elif self.engine.done:
             # 引擎已结束：添加新消息，标记可继续
             self.engine.add_user_message(message)
@@ -480,13 +486,22 @@ class Agent:
             yield result
             return
 
-        # 如果是新对话，reset
-        if not self.engine:
-            self.engine.reset(message)
+        # 首次对话（消息为空或无 system）时 reset 以注入 system prompt；
+        # 否则追加用户消息继续多轮对话
+        if (not self.engine or
+                not self.engine.messages or
+                all(m.get("role") == "system" for m in self.engine.messages)):
+            # 理论上 initialize 已建好引擎；此处兜底
+            if self.engine is None:
+                self.initialize()
+            if self.engine is not None:
+                self.engine.reset(message)
         elif self.engine.done:
+            # 引擎已结束：添加新消息，标记可继续
             self.engine.add_user_message(message)
             self.engine.done = False
         else:
+            # 引擎还在运行中（上一步未完成）：添加新消息继续
             self.engine.add_user_message(message)
 
         collected = []
