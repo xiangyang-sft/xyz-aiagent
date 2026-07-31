@@ -80,7 +80,9 @@ Agent 无需任何 Skill 即可使用的通用能力，导入后自动注册到�
 | `file` | `read_file` | 读取文本文件（UTF-8，支持截断） |
 | `file` | `write_file` | 写入/追加文本文件 |
 | `file` | `list_dir` | 列出目录内容（支持递归） |
-| `terminal` | `run_command` | 执行 shell 命令（超时+安全白名单） |
+| `terminal` | `run_command` | 执行系统命令（跨平台，超时+安全策略） |
+
+> **跨平台说明**：`run_command` 自动适配当前 OS —— POSIX 下用 `/bin/sh`（白名单命令走 shell，其余参数列表防注入）；Windows 下交给 `cmd.exe` 解释（正确支持 `dir`/`type`/`echo` 等内置命令），并显式处理编码（`errors=replace` 防 GBK 崩溃）、归一化 CRLF、超长输出截断。敏感路径检测平台感知（POSIX 的 `/etc` 及 Windows 的系统目录各一套）。
 
 ```python
 from xyz_agent import Agent, run_command
