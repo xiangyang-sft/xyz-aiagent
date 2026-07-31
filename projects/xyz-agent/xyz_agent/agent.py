@@ -35,6 +35,7 @@ from .skill import SkillManager, get_default_skill_manager
 from .mcp_client import MCPManager
 from .command import CommandSystem, get_default_command_system, is_command
 from .loader import ExtensionLoader, get_default_loader
+from .system_tools import ensure_system_tools
 from .providers import (
     LLMProvider, OpenAIProvider, OpenRouterProvider,
     build_tool_schemas,
@@ -189,6 +190,9 @@ class Agent:
         # 1. 自动加载扩展
         if self.config.auto_load_extensions:
             self._discover_extensions()
+
+        # 1.5 注册内置系统工具集（file/terminal），幂等
+        ensure_system_tools()
 
         # 2. 自动加载 Skills
         if self.config.enable_skills and self.config.auto_load_skills:

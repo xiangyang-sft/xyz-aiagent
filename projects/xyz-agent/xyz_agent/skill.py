@@ -261,29 +261,143 @@ class SkillManager:
         return tools
 
     def _register_skill_tools(self, skill: SkillDef):
-        """将 skill 中的工具注册到注册表"""
+        """将 skill 中的工具注册到注册表（对齐 Hermes：skill 引用全局真实能力）
+
+        解析规则（按优先级）：
+          1. 工具定义带真实 fn → 注册为 skill 真实工具
+          2. 工具名在全局 ToolRegistry 已有同名内置工具（file/terminal）→ 直接复用全局真实能力
+          3. 都没有 → 记录警告，不注册假占位工具（避免 LLM 误以为能力真实可用）
+        """
         for tool_def in skill.tools:
             name = tool_def.get("name", f"{skill.name}_tool")
             description = tool_def.get("description", f"{skill.name} 提供的工具")
 
-            # 如果有 fn，注册为真实工具
+            # 规则 1：工具定义自带 fn → 注册为 skill 真实工具
+            #   fn 可为可调用对象，或字符串路径（"module:function" / "scripts/xx.py:function"）
             fn = tool_def.get("fn")
             if fn:
+                resolved_fn = self._resolve_tool_fn(skill, fn)
+                if resolved_fn is None:
+                    logger.warning(
+                        f"Skill '{skill.name}' 工具 '{name}' 的 fn 无法解析: {fn}"
+                    )
+                    continue
                 self._tool_registry.register_fn(
-                    name=f"{skill.name}:{name}",
-                    fn=fn,
+                    name=f"{skill.name}_{name}",
+                    fn=resolved_fn,
                     description=description,
                     parameters=tool_def.get("parameters", {}),
                 )
                 continue
 
-            # 否则注册为 "描述性" 工具（LLM 会知道它，但由 Skill 的实现处理）
-            self._tool_registry.register_fn(
-                name=f"{skill.name}:{name}",
-                fn=lambda **kwargs: f"[Skill '{skill.name}' 工具 '{name}' 执行，参数: {kwargs}]",
-                description=description,
-                parameters=tool_def.get("parameters", {}),
+            # 规则 2：引用全局内置工具（file/terminal 等系统工具集）
+            referenced = self._resolve_global_tool(name)
+            if referenced is not None:
+                # 复用全局真实函数，名称保持统一，方便 LLM 直接调用
+                if referenced.name not in self._tool_registry:
+                    self._tool_registry.register_fn(
+                        name=referenced.name,
+                        fn=referenced.fn,
+                        description=description or referenced.description,
+                        parameters=tool_def.get("parameters") or referenced.parameters,
+                    )
+                continue
+
+            # 规则 3：既无真实实现也无全局能力 → 明确告警，不静默注册占位
+            logger.warning(
+                f"Skill '{skill.name}' 声明工具 '{name}' 但未提供 fn，"
+                f"且全局注册表中无同名内置工具可用。该工具将无法执行。"
             )
+
+    def _resolve_tool_fn(self, skill: SkillDef, fn) -> Optional[Callable]:
+        """解析 skill 工具的真实实现函数
+
+        fn 支持三种形式:
+          1. 可调用对象 → 直接返回
+          2. "module:function" → 从已安装模块导入（如 "xyz_agent.system_tools:read_file"）
+          3. "scripts/xxx.py:function" → 从 skill 目录下的脚本文件加载
+        """
+        # 可调用对象
+        if callable(fn):
+            return fn
+
+        if not isinstance(fn, str):
+            return None
+
+        # "scripts/xxx.py:func" 相对 skill 目录（source_path = 该 skill 的 SKILL.md）
+        if fn.startswith("scripts/") and skill.source_path:
+            script_rel, _, func_name = fn.partition(":")
+            skill_dir = os.path.dirname(skill.source_path)
+            return self._load_fn_from_file(os.path.join(skill_dir, script_rel), func_name)
+
+        # "module:func"
+        if ":" in fn:
+            module_name, _, func_name = fn.partition(":")
+            try:
+                mod = __import__(module_name, fromlist=[func_name])
+                return getattr(mod, func_name, None)
+            except (ImportError, AttributeError):
+                return None
+
+        return None
+
+    @staticmethod
+    def _load_fn_from_file(filepath: str, func_name: str) -> Optional[Callable]:
+        """从 Python 脚本文件加载指定函数"""
+        if not os.path.isfile(filepath):
+            return None
+        try:
+            import importlib.util
+            mod_name = f"_skill_mod_{os.path.basename(filepath)}_{func_name}"
+            spec = importlib.util.spec_from_file_location(mod_name, filepath)
+            if spec is None or spec.loader is None:
+                return None
+            module = importlib.util.module_from_spec(spec)
+            import sys as _sys
+            _sys.modules[mod_name] = module
+            spec.loader.exec_module(module)
+            return getattr(module, func_name, None)
+        except Exception:
+            return None
+
+    def _resolve_global_tool(self, name: str):
+        """在全局工具注册表中查找与 skill 声明同名的内置工具
+
+        回溯顺序:
+          1. 当前 SkillManager 关联的注册表
+          2. 全局默认注册表 _default_registry（内置 file/terminal 工具所在）
+        如果命中，说明 skill 是引用系统能力而非独立实现。
+        """
+        # 本地注册表精确匹配
+        local = self._tool_registry.get_tool(name)
+        if local is not None:
+            return local
+
+        # 回溯到全局默认注册表（内置系统工具）
+        global_tool = None
+        try:
+            from .tool import _default_registry
+            global_tool = _default_registry.get_tool(name)
+        except Exception:
+            global_tool = None
+        if global_tool is not None:
+            return global_tool
+
+        # 去前缀匹配（file_/terminal_/system_ → 裸名）
+        for prefix in ("file_", "terminal_", "system_"):
+            if name.startswith(prefix):
+                bare = name[len(prefix):]
+                match = self._tool_registry.get_tool(bare)
+                if match is None:
+                    try:
+                        from .tool import _default_registry
+                        match = _default_registry.get_tool(bare)
+                    except Exception:
+                        match = None
+                if match is not None:
+                    return match
+
+        return None
 
 
 # ============================================================

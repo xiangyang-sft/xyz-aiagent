@@ -62,12 +62,42 @@ print(result)
 ┌─ Agent ─────────────────────────────────┐
 │  ├─ ReActEngine    — 推理循环           │
 │  ├─ ToolRegistry   — 工具注册与执行      │
+│  ├─ SystemTools    — 内置工具集 file/terminal
 │  ├─ SkillManager   — Skill 加载         │
 │  ├─ MCPManager     — MCP 协议客户端     │
 │  ├─ MemorySystem   — 长期/RAG 记忆      │
 │  └─ LLMProvider    — 多种 LLM 后端      │
 └─────────────────────────────────────────┘
 ```
+
+## 内置系统工具集（Toolset）
+
+对齐 Hermes 的 `file` / `terminal` toolsets 设计，`xyz_agent` 内置了
+Agent 无需任何 Skill 即可使用的通用能力，导入后自动注册到全局 `ToolRegistry`：
+
+| Toolset | 工具 | 说明 |
+|---------|------|------|
+| `file` | `read_file` | 读取文本文件（UTF-8，支持截断） |
+| `file` | `write_file` | 写入/追加文本文件 |
+| `file` | `list_dir` | 列出目录内容（支持递归） |
+| `terminal` | `run_command` | 执行 shell 命令（超时+安全白名单） |
+
+```python
+from xyz_agent import Agent, run_command
+
+# 内置工具自动可用，无需注册
+agent = Agent.from_openai(api_key="sk-...")
+result = agent.run("帮我看看当前目录下有哪些文件，并读取 README.md 的开头")
+```
+
+### Skill 的两种能力来源（Hermes 风格）
+
+1. **引用全局工具** — skill 只提供知识/编排（Prompt），工具名命中内置
+   能力时直接复用（如 devops skill 引用 `read_file` / `run_command`）。
+2. **自带真实实现** — skill 在声明里用 `fn: "scripts/xx.py:func"` 指向
+   实现文件，加载时动态注册真实函数（如 weather skill）。
+
+不再注册"占位假工具"——声明了但无法执行的工具会明确告警，避免 LLM 误用。
 
 ## 最小示例
 
@@ -88,6 +118,7 @@ xyz-agent/
 │   ├── engine.py        # ReAct 推理循环
 │   ├── providers.py     # LLM 提供者
 │   ├── tool.py          # 工具注册与执行
+│   ├── system_tools.py  # 内置工具集 file/terminal
 │   ├── skill.py         # Skill 加载管理
 │   ├── command.py       # 内置命令系统
 │   ├── memory.py        # 长期/RAG 记忆
@@ -97,7 +128,8 @@ xyz-agent/
 │   ├── cli.py           # 命令行入口
 │   └── cli_selector.py  # 交互式选择器
 ├── skills/              # 示例 Skill
-│   └── weather/SKILL.md
+│   ├── weather/         # 自带真实实现（scripts/impl.py）
+│   └── devops/          # 引用内置系统工具
 ├── setup.py
 ├── USER_GUIDE.md        # 完整用户手册
 └── README.md

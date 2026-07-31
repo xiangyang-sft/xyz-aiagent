@@ -27,6 +27,7 @@ metadata:
   {
     "name": "get_current_weather",
     "description": "查询指定城市的当前天气",
+    "fn": "scripts/impl.py:get_current_weather",
     "parameters": {
       "type": "object",
       "properties": {
@@ -47,6 +48,7 @@ metadata:
   {
     "name": "get_weather_forecast",
     "description": "查询指定城市未来几天的天气预报",
+    "fn": "scripts/impl.py:get_weather_forecast",
     "parameters": {
       "type": "object",
       "properties": {
@@ -66,6 +68,7 @@ metadata:
   {
     "name": "get_air_quality",
     "description": "查询指定城市的空气质量指数",
+    "fn": "scripts/impl.py:get_air_quality",
     "parameters": {
       "type": "object",
       "properties": {
