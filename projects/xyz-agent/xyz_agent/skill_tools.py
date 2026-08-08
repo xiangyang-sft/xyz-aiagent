@@ -18,7 +18,7 @@
 import logging
 from typing import Dict, List, Optional
 
-from .tool import ToolRegistry, _default_registry
+from xyz_agent.tool import ToolRegistry, _default_registry
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _get_manager():
     """获取当前激活的 SkillManager，未设置时回退到全局默认"""
     if _active_skill_manager is not None:
         return _active_skill_manager
-    from .skill import get_default_skill_manager
+    from xyz_agent.skill import get_default_skill_manager
     return get_default_skill_manager()
 
 

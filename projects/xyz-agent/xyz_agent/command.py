@@ -296,7 +296,7 @@ class CommandSystem:
 
         # /version — 显示版本
         def version_handler(args: str, ctx: CommandContext) -> str:
-            from . import __version__
+            from xyz_agent import __version__
             return f"xyz-agent v{__version__}"
 
         self.register_cmd(

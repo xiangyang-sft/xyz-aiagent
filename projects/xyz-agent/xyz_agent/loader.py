@@ -30,9 +30,9 @@ import importlib.util
 import sys
 from typing import Dict, List, Optional
 
-from .skill import SkillManager
-from .mcp_client import MCPManager
-from .command import CommandSystem
+from xyz_agent.skill import SkillManager
+from xyz_agent.mcp_client import MCPManager
+from xyz_agent.command import CommandSystem
 
 logger = logging.getLogger(__name__)
 

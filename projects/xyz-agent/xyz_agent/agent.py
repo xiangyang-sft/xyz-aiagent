@@ -29,22 +29,22 @@ import os
 from typing import Callable, Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
-from .engine import ReActEngine, ReActConfig, Step, ActionType
-from .tool import ToolRegistry, ToolDef, _default_registry, get_all_tools, execute_tool
-from .skill import SkillManager, get_default_skill_manager
-from .mcp_client import MCPManager
-from .command import CommandSystem, get_default_command_system, is_command
-from .loader import ExtensionLoader, get_default_loader
-from .system_tools import ensure_system_tools
-from .skill_tools import (
+from xyz_agent.engine import ReActEngine, ReActConfig, Step, ActionType
+from xyz_agent.tool import ToolRegistry, ToolDef, _default_registry, get_all_tools, execute_tool
+from xyz_agent.skill import SkillManager, get_default_skill_manager
+from xyz_agent.mcp_client import MCPManager
+from xyz_agent.command import CommandSystem, get_default_command_system, is_command
+from xyz_agent.loader import ExtensionLoader, get_default_loader
+from xyz_agent.system_tools import ensure_system_tools
+from xyz_agent.skill_tools import (
     register_skill_tools,
     set_active_skill_manager,
 )
-from .providers import (
+from xyz_agent.providers import (
     LLMProvider, OpenAIProvider, OpenRouterProvider,
     build_tool_schemas,
 )
-from . import __version__
+from xyz_agent import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -611,7 +611,7 @@ class Agent:
     def list_skills(self) -> List[Dict]:
         """列出所有 Skill"""
         if self.skill_manager is not None:
-            from .skill import list_skills
+            from xyz_agent.skill import list_skills
             return list_skills()
         return []
 

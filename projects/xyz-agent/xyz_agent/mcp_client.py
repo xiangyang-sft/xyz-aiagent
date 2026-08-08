@@ -14,7 +14,7 @@ import os
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
 
-from .tool import ToolRegistry
+from xyz_agent.tool import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

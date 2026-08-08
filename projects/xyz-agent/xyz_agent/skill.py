@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .tool import ToolRegistry, ToolDef
+from xyz_agent.tool import ToolRegistry, ToolDef
 
 logger = logging.getLogger(__name__)
 
@@ -376,7 +376,7 @@ class SkillManager:
         # 回溯到全局默认注册表（内置系统工具）
         global_tool = None
         try:
-            from .tool import _default_registry
+            from xyz_agent.tool import _default_registry
             global_tool = _default_registry.get_tool(name)
         except Exception:
             global_tool = None
@@ -390,7 +390,7 @@ class SkillManager:
                 match = self._tool_registry.get_tool(bare)
                 if match is None:
                     try:
-                        from .tool import _default_registry
+                        from xyz_agent.tool import _default_registry
                         match = _default_registry.get_tool(bare)
                     except Exception:
                         match = None
@@ -411,7 +411,7 @@ def get_default_skill_manager() -> SkillManager:
     """获取默认 Skill 管理器"""
     global _default_skill_manager
     if _default_skill_manager is None:
-        from .tool import _default_registry
+        from xyz_agent.tool import _default_registry
         _default_skill_manager = SkillManager(tool_registry=_default_registry)
     return _default_skill_manager
 

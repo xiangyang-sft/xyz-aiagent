@@ -32,10 +32,10 @@ if __name__ == "__main__" and __package__ is None:
         sys.modules["xyz_agent.cli"] = mod
     __package__ = "xyz_agent"
 
-from . import __version__
-from .agent import Agent, AgentConfig
-from .providers import OpenAIProvider, MockProvider
-from .cli_selector import interactive_select, Style, input_text, confirm
+from xyz_agent import __version__
+from xyz_agent.agent import Agent, AgentConfig
+from xyz_agent.providers import OpenAIProvider, MockProvider
+from xyz_agent.cli_selector import interactive_select, Style, input_text, confirm
 
 logger = logging.getLogger(__name__)
 
@@ -842,7 +842,7 @@ def main():
         return
 
     if cmd == "init":
-        from .loader import generate_sample_config
+        from xyz_agent.loader import generate_sample_config
         path = args[0] if args else "~/.xyz-agent/extensions.yaml"
         out = generate_sample_config(path)
         print(f"✓ 示例配置已生成: {out}")

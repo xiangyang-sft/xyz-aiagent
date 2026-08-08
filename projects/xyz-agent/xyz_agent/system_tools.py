@@ -28,7 +28,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from .tool import ToolRegistry, _default_registry
+from xyz_agent.tool import ToolRegistry, _default_registry
 
 logger = logging.getLogger(__name__)
 

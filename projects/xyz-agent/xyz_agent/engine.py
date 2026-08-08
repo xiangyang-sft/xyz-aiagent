@@ -11,7 +11,7 @@ import logging
 from typing import Callable, Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from .providers import StreamToolCall
+from xyz_agent.providers import StreamToolCall
 
 logger = logging.getLogger(__name__)
 

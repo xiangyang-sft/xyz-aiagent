@@ -12,7 +12,7 @@ from typing import Callable, Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .agent import Agent, AgentConfig
+from xyz_agent.agent import Agent, AgentConfig
 
 
 class CollabMode(Enum):
